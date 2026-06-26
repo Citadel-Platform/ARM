@@ -1,0 +1,31 @@
+name: arm_tooling
+description: Reusable client-side automated remote monitoring for Flutter web and mobile apps.
+version: 0.1.0
+publish_to: 'none'
+homepage: https://github.com/ObsidianXVI/ARM-Tooling
+repository: https://github.com/ObsidianXVI/ARM-Tooling
+issue_tracker: https://github.com/ObsidianXVI/ARM-Tooling/issues
+topics:
+  - monitoring
+  - telemetry
+  - crash-reporting
+  - firestore
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  arm_tooling_core:
+    path: ../tooling_core
+  flutter:
+    sdk: flutter
+  cloud_firestore: ^5.0.1
+  firebase_storage: ^12.4.10
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: false

@@ -1,0 +1,17 @@
+name: arm_tooling_server
+description: Server-side capture, request instrumentation, and Firestore sinks for the Citadel ARM SDK.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  arm_tooling_core:
+    path: ../tooling_core
+  googleapis: ">=15.0.0 <17.0.0"
+  googleapis_auth: ^2.3.2
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6

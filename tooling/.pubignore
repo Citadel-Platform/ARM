@@ -1,0 +1,8 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub/
+AGENTS.md
+build/
+coverage/
+pubspec.lock
