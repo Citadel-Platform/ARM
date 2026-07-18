@@ -9,6 +9,9 @@ class ArmClient {
     required ArmSink sink,
     required this.appId,
     required this.environment,
+    this.appVersion,
+    this.buildNumber,
+    this.releaseChannel,
     this.contextBuilder,
     this.userIdProvider,
     this.userEmailProvider,
@@ -22,6 +25,9 @@ class ArmClient {
   final ArmSink _sink;
   final String appId;
   final String environment;
+  final String? appVersion;
+  final String? buildNumber;
+  final String? releaseChannel;
   final ArmContextBuilder? contextBuilder;
   final ArmValueProvider? userIdProvider;
   final ArmValueProvider? userEmailProvider;
@@ -111,6 +117,9 @@ class ArmClient {
       tags: sanitizeArmMap(tags) ?? const <String, dynamic>{},
       recoverySnapshot: recoverySnapshot,
       screenshot: screenshot,
+      appVersion: _normalizedReleaseValue(appVersion),
+      buildNumber: _normalizedReleaseValue(buildNumber),
+      releaseChannel: _normalizedReleaseValue(releaseChannel),
       handled: handled,
     );
     final result = await _sink.record(request);
@@ -196,6 +205,12 @@ class ArmClient {
       'appId': appId,
       'environment': environment,
       'releaseMode': kReleaseMode,
+      if (_normalizedReleaseValue(appVersion) case final value?)
+        'appVersion': value,
+      if (_normalizedReleaseValue(buildNumber) case final value?)
+        'buildNumber': value,
+      if (_normalizedReleaseValue(releaseChannel) case final value?)
+        'releaseChannel': value,
       if (userId != null) 'userId': userId,
       if (userEmail != null) 'userEmail': userEmail,
       if (route != null) 'route': route,
@@ -206,6 +221,12 @@ class ArmClient {
       'environment': environment,
       'sessionId': _sessionId,
       'releaseMode': kReleaseMode,
+      if (_normalizedReleaseValue(appVersion) case final value?)
+        'appVersion': value,
+      if (_normalizedReleaseValue(buildNumber) case final value?)
+        'buildNumber': value,
+      if (_normalizedReleaseValue(releaseChannel) case final value?)
+        'releaseChannel': value,
       if (userId != null) 'userId': userId,
       if (userEmail != null) 'userEmail': userEmail,
       if (route != null) 'route': route,
@@ -221,4 +242,9 @@ class ArmClient {
     final String value = rawValue.trim();
     return value.isEmpty ? null : value;
   }
+}
+
+String? _normalizedReleaseValue(String? value) {
+  final normalized = value?.trim();
+  return normalized == null || normalized.isEmpty ? null : normalized;
 }

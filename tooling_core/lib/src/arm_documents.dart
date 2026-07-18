@@ -21,6 +21,10 @@ Map<String, dynamic> buildArmIssueDocumentMap({
     'lastSeenAt': lastSeenAt,
     'lastCaseId': caseId,
     'caseCount': caseCount,
+    if (request.appVersion != null) 'appVersion': request.appVersion,
+    if (request.buildNumber != null) 'buildNumber': request.buildNumber,
+    if (request.releaseChannel != null)
+      'releaseChannel': request.releaseChannel,
   };
 }
 
@@ -47,6 +51,10 @@ Map<String, dynamic> buildArmCaseDocumentMap({
     'stackTrace': request.stackTrace,
     'sessionId': request.sessionId,
     'handled': request.handled,
+    if (request.appVersion != null) 'appVersion': request.appVersion,
+    if (request.buildNumber != null) 'buildNumber': request.buildNumber,
+    if (request.releaseChannel != null)
+      'releaseChannel': request.releaseChannel,
     'context': request.context,
     'tags': request.tags,
     'breadcrumbs': request.breadcrumbs.map((item) => item.toMap()).toList(),

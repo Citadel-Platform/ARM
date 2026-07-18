@@ -115,6 +115,9 @@ void main() {
           extension: 'png',
           name: 'capture',
         ),
+        appVersion: '2.4.0',
+        buildNumber: '187',
+        releaseChannel: 'stable',
         handled: true,
       );
 
@@ -137,6 +140,9 @@ void main() {
 
       expect(issue['caseCount'], 2);
       expect(issue['firstCaseId'], 'ARM-20260626-ABCDEFGH');
+      expect(issue['appVersion'], '2.4.0');
+      expect(issue['buildNumber'], '187');
+      expect(issue['releaseChannel'], 'stable');
       expect(casePayload['errorName'], 'AccessDeniedException');
       expect(casePayload['errorData'], <String, dynamic>{
         'message': 'Access denied',

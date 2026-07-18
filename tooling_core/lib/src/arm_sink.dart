@@ -20,6 +20,9 @@ class ArmCaptureRequest {
     this.errorData,
     this.recoverySnapshot,
     this.screenshot,
+    this.appVersion,
+    this.buildNumber,
+    this.releaseChannel,
     this.handled = false,
   });
 
@@ -39,6 +42,9 @@ class ArmCaptureRequest {
   final Map<String, dynamic>? errorData;
   final Map<String, dynamic>? recoverySnapshot;
   final ArmBinaryAttachment? screenshot;
+  final String? appVersion;
+  final String? buildNumber;
+  final String? releaseChannel;
   final bool handled;
 }
 

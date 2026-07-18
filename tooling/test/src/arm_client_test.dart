@@ -145,6 +145,9 @@ void main() {
           sink: sink,
           appId: 'citadel-platform',
           environment: 'test',
+          appVersion: ' 2.4.0 ',
+          buildNumber: ' 187 ',
+          releaseChannel: ' stable ',
           userIdProvider: () => ' uid-42 ',
           userEmailProvider: () => ' ops@citadel.internal ',
           routeProvider: () => ' /arm/issues ',
@@ -172,6 +175,10 @@ void main() {
         expect(request.context['userEmail'], 'ops@citadel.internal');
         expect(request.context['route'], '/arm/issues');
         expect(request.context['screen'], 'issue-detail');
+        expect(request.appVersion, '2.4.0');
+        expect(request.buildNumber, '187');
+        expect(request.releaseChannel, 'stable');
+        expect(request.context['appVersion'], '2.4.0');
 
         final Map<String, dynamic> session =
             request.context['session'] as Map<String, dynamic>;
@@ -181,6 +188,7 @@ void main() {
         expect(session['userId'], 'uid-42');
         expect(session['userEmail'], 'ops@citadel.internal');
         expect(session['route'], '/arm/issues');
+        expect(session['appVersion'], '2.4.0');
       },
     );
 
