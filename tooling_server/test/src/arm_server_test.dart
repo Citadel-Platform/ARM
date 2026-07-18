@@ -47,6 +47,9 @@ void main() {
           sink: sink,
           appId: 'citadel-api',
           environment: 'production',
+          appVersion: ' 3.1.0 ',
+          buildNumber: ' 912 ',
+          releaseChannel: ' canary ',
           caseIdExposureThreshold: ArmSeverity.serious,
           contextBuilder: () => <String, dynamic>{
             'service': 'oauth-api',
@@ -73,6 +76,10 @@ void main() {
         expect(request.context['requestId'], 'req-42');
         expect(request.context['userId'], 'uid-77');
         expect(request.context['sessionId'], startsWith('server-session-'));
+        expect(request.appVersion, '3.1.0');
+        expect(request.buildNumber, '912');
+        expect(request.releaseChannel, 'canary');
+        expect(request.context['appVersion'], '3.1.0');
         expect(result.caseIdExposed, isFalse);
 
         final Map<String, dynamic> session =
@@ -81,6 +88,7 @@ void main() {
         expect(session['appId'], 'citadel-api');
         expect(session['environment'], 'production');
         expect(session['runtime'], 'server');
+        expect(session['releaseChannel'], 'canary');
       },
     );
 

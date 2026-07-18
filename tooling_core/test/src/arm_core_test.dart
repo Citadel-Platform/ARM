@@ -152,6 +152,7 @@ void main() {
         contains('capture.png'),
       );
       expect(casePayload['handled'], isTrue);
+      expect(casePayload['appVersion'], '2.4.0');
     });
   });
 }

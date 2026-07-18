@@ -9,6 +9,9 @@ class ArmServer {
     required ArmSink sink,
     required this.appId,
     required this.environment,
+    this.appVersion,
+    this.buildNumber,
+    this.releaseChannel,
     this.contextBuilder,
     this.caseIdExposureThreshold = ArmSeverity.moderate,
     this.runtime = 'server',
@@ -18,6 +21,9 @@ class ArmServer {
   final ArmSink _sink;
   final String appId;
   final String environment;
+  final String? appVersion;
+  final String? buildNumber;
+  final String? releaseChannel;
   final ArmContextBuilder? contextBuilder;
   final ArmSeverity caseIdExposureThreshold;
   final String runtime;
@@ -61,6 +67,9 @@ class ArmServer {
       context: await _buildContext(context),
       tags: sanitizeArmMap(tags) ?? const <String, dynamic>{},
       recoverySnapshot: sanitizeArmMap(recoverySnapshot),
+      appVersion: _normalizedReleaseValue(appVersion),
+      buildNumber: _normalizedReleaseValue(buildNumber),
+      releaseChannel: _normalizedReleaseValue(releaseChannel),
       handled: handled,
     );
     final result = await _sink.record(request);
@@ -159,6 +168,12 @@ class ArmServer {
       'appId': appId,
       'environment': environment,
       'runtime': runtime,
+      if (_normalizedReleaseValue(appVersion) case final value?)
+        'appVersion': value,
+      if (_normalizedReleaseValue(buildNumber) case final value?)
+        'buildNumber': value,
+      if (_normalizedReleaseValue(releaseChannel) case final value?)
+        'releaseChannel': value,
     };
     return <String, dynamic>{
       if (globalContext != null && globalContext.isNotEmpty) ...globalContext,
@@ -168,7 +183,18 @@ class ArmServer {
       'environment': environment,
       'runtime': runtime,
       'sessionId': _sessionId,
+      if (_normalizedReleaseValue(appVersion) case final value?)
+        'appVersion': value,
+      if (_normalizedReleaseValue(buildNumber) case final value?)
+        'buildNumber': value,
+      if (_normalizedReleaseValue(releaseChannel) case final value?)
+        'releaseChannel': value,
       'session': sessionContext,
     };
   }
+}
+
+String? _normalizedReleaseValue(String? value) {
+  final normalized = value?.trim();
+  return normalized == null || normalized.isEmpty ? null : normalized;
 }
