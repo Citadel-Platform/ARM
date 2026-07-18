@@ -1,0 +1,17 @@
+name: citadel_arm_service
+description: Private ARM evidence query and command service contracts and HTTP handler.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  freezed_annotation: ^3.1.0
+  shelf: ^1.4.2
+
+dev_dependencies:
+  build_runner: ^2.7.1
+  freezed: ^3.2.3
+  lints: ^6.0.0
+  test: ^1.25.6
