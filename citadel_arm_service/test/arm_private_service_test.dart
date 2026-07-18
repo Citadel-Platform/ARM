@@ -68,6 +68,12 @@ void main() {
       final issues = body['issues']! as List<Object?>;
       expect((issues.first! as Map<String, Object?>)['issueId'], 'issue_b');
       expect(body['nextPageToken'], isA<String>());
+      final decodedPage = decodeArmIssuePage(body);
+      expect(decodedPage.projectId, 'customer-ops');
+      expect(decodedPage.issues.map((issue) => issue.issueId), <String>[
+        'issue_b',
+        'issue_a',
+      ]);
       expect(authorization?.projectId, 'customer-ops');
       expect(authorization?.authorizationHeader, 'Bearer google-oidc-token');
       expect(repository.lastIssueQuery?.pageSize, 2);
@@ -98,6 +104,9 @@ void main() {
           jsonDecode(await response.readAsString()) as Map<String, Object?>;
       expect((body['case']! as Map<String, Object?>)['caseId'], 'case_1');
       expect((body['issue']! as Map<String, Object?>)['issueId'], 'issue_a');
+      final detail = decodeArmCaseDetail(body);
+      expect(detail.projectId, 'customer-ops');
+      expect(detail.caseRecord.caseId, 'case_1');
     });
 
     test('attributes case status commands and derives handled state', () async {
@@ -158,6 +167,24 @@ void main() {
       expect(queryResponse.statusCode, 400);
       expect(commandResponse.statusCode, 400);
       expect(repository.calls, isEmpty);
+    });
+
+    test('strict page decoders reject unknown or malformed response data', () {
+      expect(
+        () => decodeArmCasePage(<String, Object?>{
+          'projectId': 'customer-ops',
+          'cases': <Object?>[],
+          'unexpected': true,
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => decodeArmIssuePage(<String, Object?>{
+          'projectId': 'customer-ops',
+          'issues': 'not-a-list',
+        }),
+        throwsFormatException,
+      );
     });
   });
 }

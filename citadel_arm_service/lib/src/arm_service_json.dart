@@ -56,8 +56,11 @@ Map<String, Object?> encodeArmIssueRecord(ArmIssueRecord value) {
   };
 }
 
-ArmIssueRecord decodeArmIssueRecord(Object? value) {
-  final json = _object(value, r'$');
+ArmIssueRecord decodeArmIssueRecord(Object? value) =>
+    decodeArmIssueRecordAt(value, r'$');
+
+ArmIssueRecord decodeArmIssueRecordAt(Object? value, String path) {
+  final json = _object(value, path);
   _keys(
     json,
     required: const <String>{
@@ -78,7 +81,7 @@ ArmIssueRecord decodeArmIssueRecord(Object? value) {
       'buildNumber',
       'releaseChannel',
     },
-    path: r'$',
+    path: path,
   );
   final count = _int(json['caseCount'], r'$.caseCount');
   if (count < 0) {
@@ -135,8 +138,11 @@ Map<String, Object?> encodeArmCaseRecord(ArmCaseRecord value) {
   };
 }
 
-ArmCaseRecord decodeArmCaseRecord(Object? value) {
-  final json = _object(value, r'$');
+ArmCaseRecord decodeArmCaseRecord(Object? value) =>
+    decodeArmCaseRecordAt(value, r'$');
+
+ArmCaseRecord decodeArmCaseRecordAt(Object? value, String path) {
+  final json = _object(value, path);
   _keys(
     json,
     required: const <String>{
@@ -167,7 +173,7 @@ ArmCaseRecord decodeArmCaseRecord(Object? value) {
       'buildNumber',
       'releaseChannel',
     },
-    path: r'$',
+    path: path,
   );
   return ArmCaseRecord(
     caseId: _resourceId(json['caseId'], r'$.caseId'),
@@ -210,11 +216,49 @@ Map<String, Object?> encodeArmIssuePage(ArmIssuePage value) =>
       if (value.nextPageToken != null) 'nextPageToken': value.nextPageToken,
     };
 
+ArmIssuePage decodeArmIssuePage(Object? value) {
+  final json = _object(value, r'$');
+  _keys(
+    json,
+    required: const <String>{'projectId', 'issues'},
+    optional: const <String>{'nextPageToken', 'requestId'},
+    path: r'$',
+  );
+  return ArmIssuePage(
+    projectId: _resourceId(json['projectId'], r'$.projectId'),
+    issues: _list(json['issues'], r'$.issues').indexed
+        .map(
+          (entry) => decodeArmIssueRecordAt(entry.$2, r'$.issues[${entry.$1}]'),
+        )
+        .toList(growable: false),
+    nextPageToken: _optionalString(json['nextPageToken'], r'$.nextPageToken'),
+  );
+}
+
 Map<String, Object?> encodeArmCasePage(ArmCasePage value) => <String, Object?>{
   'projectId': value.projectId,
   'cases': value.cases.map(encodeArmCaseRecord).toList(growable: false),
   if (value.nextPageToken != null) 'nextPageToken': value.nextPageToken,
 };
+
+ArmCasePage decodeArmCasePage(Object? value) {
+  final json = _object(value, r'$');
+  _keys(
+    json,
+    required: const <String>{'projectId', 'cases'},
+    optional: const <String>{'nextPageToken', 'requestId'},
+    path: r'$',
+  );
+  return ArmCasePage(
+    projectId: _resourceId(json['projectId'], r'$.projectId'),
+    cases: _list(json['cases'], r'$.cases').indexed
+        .map(
+          (entry) => decodeArmCaseRecordAt(entry.$2, r'$.cases[${entry.$1}]'),
+        )
+        .toList(growable: false),
+    nextPageToken: _optionalString(json['nextPageToken'], r'$.nextPageToken'),
+  );
+}
 
 Map<String, Object?> encodeArmCaseDetail(ArmCaseDetail value) =>
     <String, Object?>{
@@ -222,6 +266,21 @@ Map<String, Object?> encodeArmCaseDetail(ArmCaseDetail value) =>
       'case': encodeArmCaseRecord(value.caseRecord),
       'issue': encodeArmIssueRecord(value.issue),
     };
+
+ArmCaseDetail decodeArmCaseDetail(Object? value) {
+  final json = _object(value, r'$');
+  _keys(
+    json,
+    required: const <String>{'projectId', 'case', 'issue'},
+    optional: const <String>{'requestId'},
+    path: r'$',
+  );
+  return ArmCaseDetail(
+    projectId: _resourceId(json['projectId'], r'$.projectId'),
+    caseRecord: decodeArmCaseRecordAt(json['case'], r'$.case'),
+    issue: decodeArmIssueRecordAt(json['issue'], r'$.issue'),
+  );
+}
 
 Map<String, Object?> encodeArmServiceError(ArmServiceError value) =>
     <String, Object?>{
@@ -347,6 +406,13 @@ String _nonEmptyString(Object? value, String path) {
 
 String? _optionalString(Object? value, String path) =>
     value == null ? null : _nonEmptyString(value, path);
+
+List<Object?> _list(Object? value, String path) {
+  if (value is! List<Object?>) {
+    throw FormatException('$path must be an array.');
+  }
+  return value;
+}
 
 int _int(Object? value, String path) {
   if (value is! int) {
