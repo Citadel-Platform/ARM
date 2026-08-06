@@ -190,6 +190,11 @@ abstract class ArmAuthorizationRequest with _$ArmAuthorizationRequest {
     required ArmPrivateOperation operation,
     required String projectId,
     required String authorizationHeader,
+
+    /// Actor coordinates forwarded by the calling Platform API. They are only
+    /// trustworthy once the caller itself has been verified.
+    String? forwardedActorId,
+    String? forwardedActorEmail,
   }) = _ArmAuthorizationRequest;
 }
 

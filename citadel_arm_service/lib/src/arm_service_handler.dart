@@ -10,6 +10,11 @@ import 'arm_service_models.dart';
 
 const int _maximumCommandBodyBytes = 4096;
 
+/// Headers a verified Platform API caller uses to forward the human operator it
+/// already authenticated and authorized.
+const String armForwardedActorIdHeader = 'x-citadel-actor-id';
+const String armForwardedActorEmailHeader = 'x-citadel-actor-email';
+
 Handler createArmPrivateServiceHandler({
   required ArmPrivateService service,
   required ArmPrivateRequestAuthorizer authorizer,
@@ -124,6 +129,9 @@ Future<ArmAuthorizedPrincipal> _authorize({
         operation: route.operation,
         projectId: route.projectId,
         authorizationHeader: authorization,
+        forwardedActorId: request.headers[armForwardedActorIdHeader]?.trim(),
+        forwardedActorEmail: request.headers[armForwardedActorEmailHeader]
+            ?.trim(),
       ),
     );
     if (principal == null) {
