@@ -109,7 +109,7 @@ void main() {
       expect(detail.caseRecord.caseId, 'case_1');
     });
 
-    test('attributes case status commands and derives handled state', () async {
+    test('attributes case status commands without touching handled', () async {
       final repository = _FakeRepository();
       final handler = _authorizedHandler(repository);
 
@@ -129,7 +129,6 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(repository.lastCaseMutation?.status, ArmCaseStatus.resolved);
-      expect(repository.lastCaseMutation?.handled, isTrue);
       expect(repository.lastCaseMutation?.updatedBy, 'operator@example.com');
       expect(
         repository.lastCaseMutation?.statusSource,
@@ -238,6 +237,10 @@ final class _FakeRepository implements ArmEvidenceRepository {
   final List<ArmIssueRecord> issues;
   final ArmCaseDetail? detail;
   final bool hasMoreIssues;
+
+  /// Whether the application caught the error when the case was captured. A
+  /// triage command must return it unchanged.
+  static const bool capturedHandled = true;
   final List<String> calls = <String>[];
   ArmIssueQuery? lastIssueQuery;
   ArmCaseStatusMutation? lastCaseMutation;
@@ -281,7 +284,7 @@ final class _FakeRepository implements ArmEvidenceRepository {
     return _case(
       caseId,
       'issue_a',
-      handled: mutation.handled,
+      handled: capturedHandled,
     ).copyWith(status: mutation.status);
   }
 

@@ -13,5 +13,6 @@ dependencies:
   googleapis_auth: ^2.3.2
 
 dev_dependencies:
+  http: ^1.6.0
   lints: ^6.0.0
   test: ^1.25.6

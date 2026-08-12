@@ -5,7 +5,7 @@ import 'package:googleapis_auth/auth_io.dart';
 class FirestoreServiceAccountArmSink implements ArmSink {
   FirestoreServiceAccountArmSink._({
     required this.projectId,
-    required AutoRefreshingAuthClient authClient,
+    required AutoRefreshingAuthClient? authClient,
     required firestore_api.FirestoreApi firestoreApi,
     required this.issuesCollection,
     required this.casesCollection,
@@ -13,8 +13,30 @@ class FirestoreServiceAccountArmSink implements ArmSink {
   }) : _authClient = authClient,
        _firestoreApi = firestoreApi;
 
+  /// Builds a sink over an already-authenticated Firestore client.
+  ///
+  /// Exposed so the exact write shape can be asserted without a real service
+  /// account: the fields and update mask this sink sends determine whether
+  /// operator-owned triage state survives a recurrence.
+  factory FirestoreServiceAccountArmSink.withFirestoreApi({
+    required String projectId,
+    required firestore_api.FirestoreApi firestoreApi,
+    String issuesCollection = 'armIssues',
+    String casesCollection = 'armCases',
+    ArmSeverity caseIdExposureThreshold = ArmSeverity.moderate,
+  }) {
+    return FirestoreServiceAccountArmSink._(
+      projectId: projectId,
+      authClient: null,
+      firestoreApi: firestoreApi,
+      issuesCollection: issuesCollection,
+      casesCollection: casesCollection,
+      caseIdExposureThreshold: caseIdExposureThreshold,
+    );
+  }
+
   final String projectId;
-  final AutoRefreshingAuthClient _authClient;
+  final AutoRefreshingAuthClient? _authClient;
   final firestore_api.FirestoreApi _firestoreApi;
   final String issuesCollection;
   final String casesCollection;
@@ -47,14 +69,17 @@ class FirestoreServiceAccountArmSink implements ArmSink {
   Future<ArmCaptureResult> record(ArmCaptureRequest request) async {
     final issueId = buildArmIssueId(request.fingerprint);
     final caseId = buildArmCaseId();
-    final now = DateTime.now().toUtc().toIso8601String();
+    // Written as a DateTime so Firestore stores a real timestampValue. ISO
+    // strings sort as strings, and Firestore orders by value type before value,
+    // so a collection holding both cannot be ordered or paged on these fields.
+    final now = DateTime.now().toUtc();
     final issueName = '$_documentsRoot/$issuesCollection/$issueId';
     final caseName = '$_documentsRoot/$casesCollection/$caseId';
 
     final existingIssue = await _tryGetDocument(issueName);
     final caseCount = _intFromValue(existingIssue?.fields?['caseCount']) + 1;
     final firstSeenAt =
-        _stringFromValue(existingIssue?.fields?['firstSeenAt']) ?? now;
+        _timestampFromValue(existingIssue?.fields?['firstSeenAt']) ?? now;
     final firstCaseId =
         _stringFromValue(existingIssue?.fields?['firstCaseId']) ?? caseId;
 
@@ -97,6 +122,11 @@ class FirestoreServiceAccountArmSink implements ArmSink {
     }
   }
 
+  /// Writes exactly the capture-owned fields.
+  ///
+  /// A patch without an update mask replaces the whole document, which would
+  /// erase operator-owned triage fields such as `status`, `statusUpdatedBy`,
+  /// and `statusUpdatedAt` every time the same issue recurred.
   Future<void> _upsertDocument(
     String name,
     Map<String, dynamic> payload,
@@ -109,11 +139,14 @@ class FirestoreServiceAccountArmSink implements ArmSink {
         ),
       ),
       name,
+      updateMask_fieldPaths: payload.keys
+          .map(_escapeFieldPath)
+          .toList(growable: false),
     );
   }
 
   void close() {
-    _authClient.close();
+    _authClient?.close();
   }
 }
 
@@ -178,4 +211,20 @@ String? _stringFromValue(firestore_api.Value? value) {
     return null;
   }
   return value.stringValue ?? value.timestampValue;
+}
+
+/// Reads a timestamp that earlier SDK versions may have stored as a string.
+DateTime? _timestampFromValue(firestore_api.Value? value) {
+  final raw = value?.timestampValue ?? value?.stringValue;
+  if (raw == null) {
+    return null;
+  }
+  return DateTime.tryParse(raw)?.toUtc();
+}
+
+/// Quotes a field path segment unless it is a plain identifier.
+String _escapeFieldPath(String field) {
+  return RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(field)
+      ? field
+      : '`${field.replaceAll(r'\', r'\\').replaceAll('`', r'\`')}`';
 }

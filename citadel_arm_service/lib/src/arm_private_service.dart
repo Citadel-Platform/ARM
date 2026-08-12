@@ -182,8 +182,6 @@ final class ArmPrivateService {
       caseId: id,
       mutation: ArmCaseStatusMutation(
         status: status,
-        handled:
-            status == ArmCaseStatus.resolved || status == ArmCaseStatus.closed,
         updatedBy: _operatorEmail(principal),
       ),
     );
@@ -194,11 +192,7 @@ final class ArmPrivateService {
       );
     }
     final validated = _validatedCase(updated);
-    final expectedHandled =
-        status == ArmCaseStatus.resolved || status == ArmCaseStatus.closed;
-    if (validated.caseId != id ||
-        validated.status != status ||
-        validated.handled != expectedHandled) {
+    if (validated.caseId != id || validated.status != status) {
       throw const ArmServiceException(
         code: ArmServiceErrorCode.internal,
         message: 'ARM repository returned an inconsistent case update.',

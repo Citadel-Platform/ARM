@@ -45,6 +45,9 @@ class FirebaseArmSink implements ArmSink {
                 caseId
           : caseId;
 
+      // Merged so the capture path only writes capture-owned fields. A plain
+      // set replaces the document, which would erase operator triage such as
+      // `status` and `statusUpdatedBy` each time the issue recurred.
       transaction.set(
         issueRef,
         buildArmIssueDocumentMap(
@@ -56,6 +59,7 @@ class FirebaseArmSink implements ArmSink {
           firstCaseId: firstCaseId,
           caseCount: existingCount + 1,
         ),
+        SetOptions(merge: true),
       );
 
       transaction.set(

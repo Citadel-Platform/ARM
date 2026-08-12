@@ -154,6 +154,54 @@ void main() {
       expect(casePayload['handled'], isTrue);
       expect(casePayload['appVersion'], '2.4.0');
     });
+
+    test('stamps a new case as untriaged and leaves issue triage alone', () {
+      final ArmCaptureRequest request = ArmCaptureRequest(
+        severity: ArmSeverity.serious,
+        category: 'runtime',
+        feature: 'invoicing',
+        operation: 'send_invoice_email',
+        message: 'SMTP refused',
+        errorType: 'SmtpException',
+        stackTrace: 'stack',
+        fingerprint: 'fingerprint',
+        sessionId: 'session-1',
+        breadcrumbs: const <ArmBreadcrumb>[],
+        context: <String, dynamic>{},
+        tags: <String, dynamic>{},
+        handled: true,
+      );
+
+      final Map<String, dynamic> casePayload = buildArmCaseDocumentMap(
+        caseId: 'ARM-20260807-019222B8',
+        issueId: 'issue_123',
+        request: request,
+        createdAt: DateTime.utc(2026, 8, 7),
+      );
+      final Map<String, dynamic> issue = buildArmIssueDocumentMap(
+        issueId: 'issue_123',
+        caseId: 'ARM-20260807-019222B8',
+        request: request,
+        firstSeenAt: DateTime.utc(2026, 8, 7),
+        lastSeenAt: DateTime.utc(2026, 8, 7),
+        firstCaseId: 'ARM-20260807-019222B8',
+        caseCount: 1,
+      );
+
+      expect(casePayload['status'], armCaseStatusNew);
+      expect(
+        casePayload['handled'],
+        isTrue,
+        reason: 'handled is capture evidence and is independent of triage',
+      );
+      expect(
+        issue.containsKey('status'),
+        isFalse,
+        reason:
+            'issues are upserted on every recurrence, so a written status '
+            'would overwrite an operator triage decision',
+      );
+    });
   });
 }
 

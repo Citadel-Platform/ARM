@@ -185,7 +185,6 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
         'status': firestore_api.Value(
           stringValue: _caseStatusWireName(mutation.status),
         ),
-        'handled': firestore_api.Value(booleanValue: mutation.handled),
         'statusUpdatedAt': firestore_api.Value(
           timestampValue: _clock().toIso8601String(),
         ),

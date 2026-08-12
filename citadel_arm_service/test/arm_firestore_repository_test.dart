@@ -118,11 +118,22 @@ void main() {
     );
 
     expect(updated.status, ArmCaseStatus.resolved);
-    expect(updated.handled, isTrue);
+    expect(
+      updated.handled,
+      isFalse,
+      reason:
+          'handled records whether the app caught the error at capture time '
+          'and must survive a triage command unchanged',
+    );
     final patch = requests.singleWhere((path) => path.startsWith('PATCH'));
     expect(patch, contains('updateMask.fieldPaths=status'));
     expect(patch, contains('currentDocument.exists=true'));
     expect(patch, contains('statusUpdatedBy'));
+    expect(
+      patch,
+      isNot(contains('handled')),
+      reason: 'triage must not write the capture-time handled flag',
+    );
   });
 
   test('reports a missing case as not found', () async {

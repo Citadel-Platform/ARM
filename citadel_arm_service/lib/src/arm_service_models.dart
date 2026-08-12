@@ -207,11 +207,15 @@ abstract class ArmIssueStatusMutation with _$ArmIssueStatusMutation {
   }) = _ArmIssueStatusMutation;
 }
 
+/// An operator's triage decision on a case.
+///
+/// It deliberately carries no `handled` flag. Whether the application caught
+/// the error is capture evidence recorded at the boundary; overwriting it from
+/// a triage command would destroy that record.
 @freezed
 abstract class ArmCaseStatusMutation with _$ArmCaseStatusMutation {
   const factory ArmCaseStatusMutation({
     required ArmCaseStatus status,
-    required bool handled,
     required String updatedBy,
     @Default('citadel_platform_operator') String statusSource,
   }) = _ArmCaseStatusMutation;
