@@ -1,0 +1,22 @@
+# Dart and Flutter generated output
+**/.dart_tool/
+**/build/
+**/*.freezed.dart
+**/gen/
+**/lib/src/gen/
+
+# Local operating-system metadata
+.DS_Store
+
+# Dependency directories
+node_modules/
+
+# Terraform working directories, saved plans, and resolved image variables
+**/.terraform/
+**/*.tfplan
+**/*.tfstate
+**/*.tfstate.*
+**/images.auto.tfvars
+
+# Logs
+*.log
