@@ -73,7 +73,7 @@ void main() {
           appId: 'citadel-platform',
           environment: 'test',
           contextBuilder: () => <String, dynamic>{
-            'route': '/console/arm',
+            'route': '/arm/issues',
             'nested': <String, dynamic>{
               'list': List<int>.generate(30, (int index) => index),
             },

@@ -14,11 +14,12 @@ Automated Remote Monitoring (ARM) is the first consolidated Citadel Platform pro
 - `tooling_server/` — server/runtime ARM package with service-account
   Firestore persistence, guarded server capture, request context helpers, and
   normalized server error reporting.
-- `console/` — Flutter web console for triage, project registry, issue/case exploration, reports, and monitored-project setup. Its auth, permissions, and registry live in the shared `citadel-platform` Firebase project.
 
 ## Consolidation note
 
 The ARM SDK is now split by runtime concern: shared contracts live in
 `tooling_core`, Flutter capture lives in `tooling`, and server-side capture
-and service-account sinks live in `tooling_server`. Consuming apps should
-depend only on the runtime facet they actually use.
+and service-account sinks live in `tooling_server`. The standalone ARM Console
+is retired; the unified Citadel Platform Console is the only production UI for
+ARM workflows. Consuming apps should depend only on the runtime facet they
+actually use.
