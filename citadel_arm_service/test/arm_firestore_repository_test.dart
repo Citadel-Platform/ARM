@@ -184,6 +184,55 @@ void main() {
       ),
     );
   });
+
+  test('a ticket is stored whole and read back through its own codec',
+      () async {
+    final requests = <String>[];
+    final repository = _repository(requests);
+    final ArmTicketRecord ticket = ArmTicketRecord(
+      ticketId: 'ticket_a',
+      title: 'Checkout will not submit',
+      description: 'It spins and then nothing happens.',
+      status: ArmTicketStatus.investigating,
+      createdAt: DateTime.utc(2026, 8, 31, 3),
+      updatedAt: DateTime.utc(2026, 8, 31, 4),
+      createdBy: 'citadel_arm_client',
+      reporterContact: 'buyer@example.com',
+      caseIds: const <String>['ARM-20260831-AB12CD34'],
+      issueId: 'issue_checkout',
+      allowlist: const <String>['ops@example.com'],
+      updates: <ArmTicketUpdate>[
+        ArmTicketUpdate(
+          updateId: 'update_a',
+          authorKind: ArmTicketAuthorKind.endUser,
+          authorLabel: 'buyer@example.com',
+          body: 'It spins and then nothing happens.',
+          createdAt: DateTime.utc(2026, 8, 31, 3),
+        ),
+      ],
+    );
+
+    await repository.writeTicket(projectId: _citadelProjectId, ticket: ticket);
+    final ArmTicketRecord? read = await repository.getTicket(
+      projectId: _citadelProjectId,
+      ticketId: 'ticket_a',
+    );
+
+    // The history is the document: a partial write of one is a history with a
+    // hole in it, so the whole ticket goes as a single payload.
+    expect(read, ticket);
+    // And it is written into the client's own boundary, beside the case logs
+    // it points at.
+    expect(
+      requests.any(
+        (String entry) =>
+            entry.startsWith('PATCH') &&
+            entry.contains('/$_customerProjectId/') &&
+            entry.contains('armTickets/ticket_a'),
+      ),
+      isTrue,
+    );
+  });
 }
 
 FirestoreArmEvidenceRepository _repository(List<String> requests) {
@@ -224,13 +273,22 @@ firestore_api.FirestoreApi _api(
       }
       if (request.method == 'PATCH') {
         final existing = store[name];
-        if (existing == null) {
+        // Firestore's patch creates when there is no precondition, and the
+        // triage writes send `currentDocument.exists=true` precisely so that
+        // they do not. Tickets are written without one, because a new ticket
+        // has nothing to update.
+        final bool requiresExisting = request.url.queryParameters.containsKey(
+          'currentDocument.exists',
+        );
+        if (existing == null && requiresExisting) {
           return _notFound();
         }
         final patch = jsonDecode(request.body) as Map<String, Object?>;
-        final fields = Map<String, Object?>.from(
-          existing['fields']! as Map<String, Object?>,
-        )..addAll(patch['fields']! as Map<String, Object?>);
+        final fields =
+            Map<String, Object?>.from(
+              (existing?['fields'] ?? const <String, Object?>{})
+                  as Map<String, Object?>,
+            )..addAll(patch['fields']! as Map<String, Object?>);
         final merged = <String, Object?>{'name': name, 'fields': fields};
         store[name] = merged;
         return _json(merged);
