@@ -1,0 +1,9 @@
+# The emulator tag drives the real Firestore REST API against the local
+# emulator. Declared so `--tags emulator` is recognised, and left in every run
+# by default: the test skips itself unless FIRESTORE_EMULATOR_HOST is set, so a
+# plain `dart test` reports it as skipped rather than silently omitting it. A
+# gate nobody can see is not running is how Phase R happened.
+tags:
+  emulator:
+    description: >
+      Drives the real Firestore REST API against the local emulator.

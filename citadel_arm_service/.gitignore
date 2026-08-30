@@ -1,3 +1,6 @@
 .dart_tool/
 build/
 lib/src/*.freezed.dart
+
+# Written by the Firestore emulator when the emulator-tagged tests run.
+firestore-debug.log
