@@ -1,11 +1,28 @@
+import 'dart:convert';
+
 import 'package:googleapis/firestore/v1.dart' as firestore_api;
 
 import 'arm_private_service.dart';
+import 'arm_service_json.dart';
 import 'arm_project_router.dart';
 import 'arm_service_models.dart';
 
 const String armIssuesCollectionId = 'armIssues';
 const String armCasesCollectionId = 'armCases';
+
+/// Where a project's support tickets live.
+///
+/// In the client's own boundary, beside the cases they point at: a ticket is
+/// the client's conversation with their own customer, about their own fault.
+/// The allowlist on it is enforced by this service on every read, never by
+/// where the document sits.
+const String armTicketsCollectionId = 'armTickets';
+
+/// Where a project's alerting policies and channels live.
+///
+/// In the registry project rather than the client's, because it decides who
+/// Citadel sends messages to.
+const String armAlertingCollectionId = 'armAlerting';
 
 /// Upper bound on documents read from one customer collection for a single
 /// request. ARM evidence written by the SDK carries mixed `timestampValue` and
@@ -21,11 +38,20 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
   FirestoreArmEvidenceRepository({
     required firestore_api.FirestoreApi firestoreApi,
     required ArmProjectRouter router,
+    required String registryProjectId,
+    String registryDatabaseId = '(default)',
     this.maxScanDocuments = armDefaultMaxScanDocuments,
     DateTime Function()? clock,
   }) : _firestoreApi = firestoreApi,
        _router = router,
+       _registryDocumentsRoot =
+           'projects/$registryProjectId/databases/$registryDatabaseId/documents',
        _clock = clock ?? (() => DateTime.now().toUtc());
+
+  /// Where alerting configuration lives — the registry, never the client's
+  /// own database. A client-writable document deciding who Citadel messages
+  /// is a way to make Citadel send to anyone.
+  final String _registryDocumentsRoot;
 
   final firestore_api.FirestoreApi _firestoreApi;
   final ArmProjectRouter _router;
@@ -209,6 +235,282 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
     return record;
   }
 
+  @override
+  Future<ArmCaseRecord?> updateCaseSeverity({
+    required String projectId,
+    required String caseId,
+    required ArmCaseSeverityMutation mutation,
+  }) async {
+    final target = await _router.resolve(projectId);
+    final name = '${target.documentsRoot}/$armCasesCollectionId/$caseId';
+    // Written to `operatorSeverity`, never to `severity`. The captured value
+    // is evidence about what the SDK saw; overwriting it would destroy the
+    // only record of what the fault looked like when it happened.
+    final updated = await _patchStatus(
+      name: name,
+      fields: <String, firestore_api.Value>{
+        'operatorSeverity': firestore_api.Value(
+          stringValue: armSeverityWireName(mutation.severity),
+        ),
+        'severityUpdatedAt': firestore_api.Value(
+          timestampValue: _clock().toIso8601String(),
+        ),
+        'severityUpdatedBy': firestore_api.Value(
+          stringValue: mutation.updatedBy,
+        ),
+        'severitySource': firestore_api.Value(
+          stringValue: mutation.severitySource,
+        ),
+      },
+    );
+    if (updated == null) {
+      return null;
+    }
+    final record = _caseRecord(updated);
+    if (record == null) {
+      throw const ArmServiceException(
+        code: ArmServiceErrorCode.internal,
+        message: 'The updated ARM case document is not readable.',
+      );
+    }
+    return record;
+  }
+
+  @override
+  Future<ArmIssueRecord?> updateIssueTags({
+    required String projectId,
+    required String issueId,
+    required ArmIssueTagsMutation mutation,
+  }) async {
+    final target = await _router.resolve(projectId);
+    final name = '${target.documentsRoot}/$armIssuesCollectionId/$issueId';
+    // The whole array, replaced. Firestore has array-union, and using it here
+    // would make a removal impossible to express through the same route.
+    final updated = await _patchStatus(
+      name: name,
+      fields: <String, firestore_api.Value>{
+        'tags': firestore_api.Value(
+          arrayValue: firestore_api.ArrayValue(
+            values: <firestore_api.Value>[
+              for (final String tag in mutation.tags)
+                firestore_api.Value(stringValue: tag),
+            ],
+          ),
+        ),
+        'tagsUpdatedAt': firestore_api.Value(
+          timestampValue: _clock().toIso8601String(),
+        ),
+        'tagsUpdatedBy': firestore_api.Value(stringValue: mutation.updatedBy),
+        'tagSource': firestore_api.Value(stringValue: mutation.tagSource),
+      },
+    );
+    if (updated == null) {
+      return null;
+    }
+    final record = _issueRecord(updated);
+    if (record == null) {
+      throw const ArmServiceException(
+        code: ArmServiceErrorCode.internal,
+        message: 'The updated ARM issue document is not readable.',
+      );
+    }
+    return record;
+  }
+
+  @override
+  Future<ArmTicketPageSlice> listTickets({
+    required String projectId,
+    required ArmTicketQuery query,
+  }) async {
+    final target = await _router.resolve(projectId);
+    final documents = await _scanCollection(target, armTicketsCollectionId);
+    final records = <ArmTicketRecord>[];
+    for (final document in documents) {
+      final record = _ticketRecord(document);
+      if (record == null) continue;
+      if (query.status != null && record.status != query.status) continue;
+      if (query.issueId != null && record.issueId != query.issueId) continue;
+      records.add(record);
+    }
+    records.sort(
+      (left, right) => _compare(
+        right.updatedAt,
+        right.ticketId,
+        left.updatedAt,
+        left.ticketId,
+      ),
+    );
+    final page = _slice<ArmTicketRecord>(
+      records: records,
+      cursor: query.cursor,
+      pageSize: query.pageSize,
+      timestampOf: (record) => record.updatedAt,
+      idOf: (record) => record.ticketId,
+    );
+    return ArmTicketPageSlice(tickets: page.items, hasMore: page.hasMore);
+  }
+
+  @override
+  Future<ArmTicketRecord?> getTicket({
+    required String projectId,
+    required String ticketId,
+  }) async {
+    final target = await _router.resolve(projectId);
+    final document = await _getDocument(
+      '${target.documentsRoot}/$armTicketsCollectionId/$ticketId',
+    );
+    if (document == null) return null;
+    final record = _ticketRecord(document);
+    if (record == null) {
+      throw const ArmServiceException(
+        code: ArmServiceErrorCode.internal,
+        message: 'The stored ARM ticket is not readable.',
+      );
+    }
+    return record;
+  }
+
+  @override
+  Future<ArmTicketRecord> writeTicket({
+    required String projectId,
+    required ArmTicketRecord ticket,
+  }) async {
+    final target = await _router.resolve(projectId);
+    // Round-tripped through the codec before it is written, so a shape the
+    // reader would refuse can never reach storage.
+    final String payload = jsonEncode(
+      encodeArmTicketRecord(
+        decodeArmTicketRecord(encodeArmTicketRecord(ticket), r'$'),
+      ),
+    );
+    final name =
+        '${target.documentsRoot}/$armTicketsCollectionId/${ticket.ticketId}';
+    try {
+      await _firestoreApi.projects.databases.documents.patch(
+        firestore_api.Document(
+          name: name,
+          fields: <String, firestore_api.Value>{
+            'ticketId': firestore_api.Value(stringValue: ticket.ticketId),
+            // The whole ticket, as one payload. Its history is the document,
+            // and a partial write of a history is a history with a hole in it.
+            'ticket': firestore_api.Value(stringValue: payload),
+            // Duplicated out of the payload so a listing can be ordered and a
+            // status filtered without decoding every ticket in the project.
+            'status': firestore_api.Value(stringValue: ticket.status.name),
+            'updatedAt': firestore_api.Value(
+              timestampValue: ticket.updatedAt.toUtc().toIso8601String(),
+            ),
+          },
+        ),
+        name,
+        updateMask_fieldPaths: const <String>[
+          'ticketId',
+          'ticket',
+          'status',
+          'updatedAt',
+        ],
+      );
+    } on firestore_api.DetailedApiRequestError catch (error) {
+      throw _upstreamFailure(error);
+    }
+    return ticket;
+  }
+
+  ArmTicketRecord? _ticketRecord(firestore_api.Document document) {
+    final fields = document.fields ?? const <String, firestore_api.Value>{};
+    final String? payload = fields['ticket']?.stringValue;
+    if (payload == null || payload.isEmpty) return null;
+    try {
+      return decodeArmTicketRecord(jsonDecode(payload), r'$');
+    } on Object {
+      // One unreadable ticket does not take the listing down with it: the rest
+      // of the project's tickets are still answerable, and a page that failed
+      // outright would hide them behind one bad document.
+      return null;
+    }
+  }
+
+  /// A project's alerting configuration, as one document.
+  ///
+  /// One document rather than two collections, because policies name channels
+  /// by id and are edited together: a read that returned policies without the
+  /// channels they reference would render a policy notifying nothing.
+  ///
+  /// **In the registry project, not the client's.** A notification channel
+  /// holds the addresses Citadel will send to, and a policy decides when. A
+  /// client-writable document deciding who Citadel messages is a way to make
+  /// Citadel send to anyone.
+  @override
+  Future<ArmAlertingConfiguration> readAlerting({
+    required String projectId,
+  }) async {
+    final name = '$_registryDocumentsRoot/$armAlertingCollectionId/$projectId';
+    firestore_api.Document? document;
+    try {
+      document = await _firestoreApi.projects.databases.documents.get(name);
+    } on firestore_api.DetailedApiRequestError catch (error) {
+      // A project that has configured nothing has no document, which is an
+      // empty configuration and not a failure.
+      if (error.status != 404) rethrow;
+    }
+    if (document == null) {
+      return ArmAlertingConfiguration(projectId: projectId);
+    }
+    final fields = document.fields ?? const <String, firestore_api.Value>{};
+    final String? payload = fields['configuration']?.stringValue;
+    if (payload == null || payload.isEmpty) {
+      return ArmAlertingConfiguration(projectId: projectId);
+    }
+    try {
+      return decodeArmAlertingConfiguration(jsonDecode(payload));
+    } on Object {
+      throw const ArmServiceException(
+        code: ArmServiceErrorCode.internal,
+        message: 'The stored ARM alerting configuration is not readable.',
+      );
+    }
+  }
+
+  @override
+  Future<ArmAlertingConfiguration> writeAlerting({
+    required String projectId,
+    required ArmAlertingConfiguration configuration,
+    required String updatedBy,
+  }) async {
+    final stored = configuration.copyWith(projectId: projectId);
+    // Round-tripped through the codec before it is written, so a shape the
+    // reader would refuse can never reach storage.
+    final String payload = jsonEncode(
+      encodeArmAlertingConfiguration(
+        decodeArmAlertingConfiguration(
+          encodeArmAlertingConfiguration(stored),
+        ),
+      ),
+    );
+    final name = '$_registryDocumentsRoot/$armAlertingCollectionId/$projectId';
+    await _firestoreApi.projects.databases.documents.patch(
+      firestore_api.Document(
+        name: name,
+        fields: <String, firestore_api.Value>{
+          'projectId': firestore_api.Value(stringValue: projectId),
+          'configuration': firestore_api.Value(stringValue: payload),
+          'updatedAt': firestore_api.Value(
+            timestampValue: _clock().toIso8601String(),
+          ),
+          'updatedBy': firestore_api.Value(stringValue: updatedBy),
+        },
+      ),
+      name,
+      updateMask_fieldPaths: const <String>[
+        'projectId',
+        'configuration',
+        'updatedAt',
+        'updatedBy',
+      ],
+    );
+    return stored;
+  }
+
   Future<firestore_api.Document?> _patchStatus({
     required String name,
     required Map<String, firestore_api.Value> fields,
@@ -311,6 +613,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       appVersion: _optionalText(fields['appVersion']),
       buildNumber: _optionalText(fields['buildNumber']),
       releaseChannel: _optionalText(fields['releaseChannel']),
+      tags: _tagList(fields['tags']),
     );
   }
 
@@ -349,7 +652,29 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       appVersion: _optionalText(fields['appVersion']),
       buildNumber: _optionalText(fields['buildNumber']),
       releaseChannel: _optionalText(fields['releaseChannel']),
+      operatorSeverity: _optionalText(fields['operatorSeverity']),
+      severityUpdatedBy: _optionalText(fields['severityUpdatedBy']),
+      severityUpdatedAt: _timestamp(fields['severityUpdatedAt']),
     );
+  }
+
+  /// A fingerprint's tags, from whatever is stored.
+  ///
+  /// Tolerant of a missing or wrongly typed field and strict about the values:
+  /// a document written by an older build has no `tags`, which is untagged and
+  /// not an error, while a malformed entry is dropped rather than surfaced —
+  /// a tag nobody can read is not worth failing a whole listing over.
+  List<String> _tagList(firestore_api.Value? value) {
+    final List<firestore_api.Value>? values = value?.arrayValue?.values;
+    if (values == null) return const <String>[];
+    final Set<String> tags = <String>{};
+    for (final firestore_api.Value entry in values) {
+      final String? tag = entry.stringValue?.trim().toLowerCase();
+      if (tag == null || tag.isEmpty) continue;
+      tags.add(tag);
+    }
+    final List<String> ordered = tags.toList()..sort();
+    return List<String>.unmodifiable(ordered);
   }
 }
 

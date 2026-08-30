@@ -95,3 +95,37 @@ class FirebaseArmSink implements ArmSink {
     );
   }
 }
+
+/// Opens a ticket in the same database the case logs are written to.
+///
+/// The same path the SDK already writes evidence on, and for the same reason:
+/// the application is signed in to its own Firebase project, and a ticket is
+/// the client's conversation with their own customer. Nothing new is exposed
+/// to the device — it writes a ticket beside the case log it is about.
+class FirebaseArmTicketSink implements ArmTicketSink {
+  FirebaseArmTicketSink({
+    required FirebaseFirestore firestore,
+    this.ticketsCollection = 'armTickets',
+  }) : _firestore = firestore;
+
+  final FirebaseFirestore _firestore;
+  final String ticketsCollection;
+
+  @override
+  Future<String> open(ArmTicketRequest request) async {
+    final String ticketId = buildArmTicketId();
+    await _firestore
+        .collection(ticketsCollection)
+        .doc(ticketId)
+        .set(
+          buildArmTicketDocumentMap(
+            ticketId: ticketId,
+            updateId: '${ticketId}_1',
+            request: request,
+            createdAt: DateTime.now().toUtc(),
+            indexedUpdatedAt: FieldValue.serverTimestamp(),
+          ),
+        );
+    return ticketId;
+  }
+}

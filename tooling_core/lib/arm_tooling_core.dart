@@ -7,4 +7,5 @@ export 'src/arm_fingerprint.dart';
 export 'src/arm_ids.dart';
 export 'src/arm_sanitizer.dart';
 export 'src/arm_sink.dart';
+export 'src/arm_ticket.dart';
 export 'src/arm_types.dart';

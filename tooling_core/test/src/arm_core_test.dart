@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:arm_tooling_core/arm_tooling_core.dart';
@@ -200,6 +201,64 @@ void main() {
         reason:
             'issues are upserted on every recurrence, so a written status '
             'would overwrite an operator triage decision',
+      );
+    });
+  });
+
+  group('buildArmTicketDocumentMap', () {
+    test('writes the shape the ARM service reads back', () {
+      final Map<String, dynamic> document = buildArmTicketDocumentMap(
+        ticketId: 'ticket_a',
+        updateId: 'ticket_a_1',
+        request: const ArmTicketRequest(
+          title: 'Checkout will not submit',
+          description: 'It spins and then nothing happens.',
+          contact: 'buyer@example.com',
+          caseId: 'ARM-20260831-AB12CD34',
+          issueId: 'issue_checkout',
+          sessionId: 'session-1',
+        ),
+        createdAt: DateTime.utc(2026, 8, 31, 3),
+        indexedUpdatedAt: 'server-timestamp',
+      );
+
+      // Ordering and filtering read these; the ticket itself is the payload.
+      expect(document['ticketId'], 'ticket_a');
+      expect(document['status'], 'open');
+      expect(document['updatedAt'], 'server-timestamp');
+
+      final Map<String, Object?> payload =
+          jsonDecode(document['ticket'] as String) as Map<String, Object?>;
+      expect(payload['title'], 'Checkout will not submit');
+      expect(payload['createdAt'], '2026-08-31T03:00:00.000Z');
+      expect(payload['reporterContact'], 'buyer@example.com');
+      expect(payload['caseIds'], <String>['ARM-20260831-AB12CD34']);
+      expect(payload['issueId'], 'issue_checkout');
+      // Nobody named: the link is the access control, and a public link is
+      // served without the evidence coordinates above.
+      expect(payload['allowlist'], isEmpty);
+      // The description opens the history rather than only sitting in a field.
+      final List<Object?> updates = payload['updates']! as List<Object?>;
+      final Map<String, Object?> first = updates.single as Map<String, Object?>;
+      expect(first['authorKind'], 'endUser');
+      expect(first['body'], 'It spins and then nothing happens.');
+    });
+
+    test('somebody who leaves no address is still Customer, not blank', () {
+      final Map<String, dynamic> document = buildArmTicketDocumentMap(
+        ticketId: 'ticket_b',
+        updateId: 'ticket_b_1',
+        request: const ArmTicketRequest(title: 'A', description: 'B'),
+        createdAt: DateTime.utc(2026, 8, 31, 3),
+        indexedUpdatedAt: 'server-timestamp',
+      );
+      final Map<String, Object?> payload =
+          jsonDecode(document['ticket'] as String) as Map<String, Object?>;
+      expect(payload.containsKey('reporterContact'), isFalse);
+      final List<Object?> updates = payload['updates']! as List<Object?>;
+      expect(
+        (updates.single as Map<String, Object?>)['authorLabel'],
+        'Customer',
       );
     });
   });

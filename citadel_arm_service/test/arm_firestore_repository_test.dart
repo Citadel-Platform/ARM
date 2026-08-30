@@ -161,6 +161,7 @@ void main() {
 
   test('fails loudly when the collection outgrows the scan limit', () async {
     final repository = FirestoreArmEvidenceRepository(
+      registryProjectId: 'citadel-platform',
       firestoreApi: _api(<String>[], _allDocuments()),
       router: FirestoreArmProjectRouter(
         firestoreApi: _api(<String>[], _allDocuments()),
@@ -188,6 +189,7 @@ void main() {
 FirestoreArmEvidenceRepository _repository(List<String> requests) {
   final api = _api(requests, _allDocuments());
   return FirestoreArmEvidenceRepository(
+      registryProjectId: 'citadel-platform',
     firestoreApi: api,
     router: FirestoreArmProjectRouter(
       firestoreApi: api,

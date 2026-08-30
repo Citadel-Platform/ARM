@@ -136,6 +136,333 @@ void main() {
       );
     });
 
+    test('a severity change is recorded beside the captured one', () async {
+      // Losing what the capture arrived with would make "did we treat this as
+      // urgent, and were we right to" unanswerable afterwards.
+      final repository = _FakeRepository();
+      final handler = _authorizedHandler(repository);
+
+      final response = await handler(
+        Request(
+          'PATCH',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/cases/case_1/severity',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: '{"severity":"low"}',
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      expect(repository.lastSeverityMutation?.severity, ArmSeverity.low);
+      expect(repository.lastSeverityMutation?.updatedBy, 'operator@example.com');
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, Object?>;
+      final record = body['case']! as Map<String, Object?>;
+      expect(record['operatorSeverity'], 'low');
+      // The captured severity is untouched.
+      expect(record['severity'], isNot('low'));
+    });
+
+    test('an unknown severity is refused rather than stored', () async {
+      final handler = _authorizedHandler(_FakeRepository());
+
+      final response = await handler(
+        Request(
+          'PATCH',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/cases/case_1/severity',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: '{"severity":"catastrophic"}',
+        ),
+      );
+
+      expect(response.statusCode, 400);
+    });
+
+    test('tags are replaced as a whole set, normalised', () async {
+      // Two operators editing one fingerprint at once would otherwise
+      // interleave into a set neither of them chose.
+      final repository = _FakeRepository();
+      final handler = _authorizedHandler(repository);
+
+      final response = await handler(
+        Request(
+          'PATCH',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/issues/issue_a/tags',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: '{"tags":["Regression"," checkout ","regression",""]}',
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      // Lower-cased, trimmed, deduplicated and sorted, so `Regression` and
+      // `regression` cannot both exist and mean the same thing.
+      expect(repository.lastTagsMutation?.tags, <String>[
+        'checkout',
+        'regression',
+      ]);
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, Object?>;
+      expect((body['issue']! as Map<String, Object?>)['tags'], <String>[
+        'checkout',
+        'regression',
+      ]);
+    });
+
+    test('a tag that is not a tag is refused', () async {
+      final handler = _authorizedHandler(_FakeRepository());
+
+      for (final String body in <String>[
+        '{"tags":["../etc/passwd"]}',
+        '{"tags":[1]}',
+        '{"tags":"regression"}',
+      ]) {
+        final response = await handler(
+          Request(
+            'PATCH',
+            Uri.parse(
+              'http://localhost/v1/projects/customer-ops/arm/issues/issue_a/tags',
+            ),
+            headers: const <String, String>{
+              'authorization': 'Bearer oidc',
+              'content-type': 'application/json; charset=utf-8',
+            },
+            body: body,
+          ),
+        );
+        expect(response.statusCode, 400, reason: body);
+      }
+    });
+
+    test('a policy naming a channel that does not exist is refused', () async {
+      // A policy that silently notifies nobody looks identical to one that is
+      // working and finding nothing.
+      final repository = _FakeRepository();
+      final handler = _authorizedHandler(repository);
+
+      final response = await handler(
+        Request(
+          'PUT',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/policies/p1',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: jsonEncode(<String, Object?>{
+            'policyId': 'p1',
+            'displayName': 'Checkout regressions',
+            'rules': <Object?>[
+              <String, Object?>{
+                'field': 'title',
+                'operator': 'contains',
+                'value': 'checkout',
+              },
+            ],
+            'tags': <String>['checkout'],
+            'channelIds': <String>['ops_email'],
+          }),
+        ),
+      );
+
+      // A precondition, not a malformed request: the body is valid and the
+      // world it refers to is not there.
+      expect(response.statusCode, 412);
+    });
+
+    test('a channel is stored, then a policy may name it', () async {
+      final repository = _FakeRepository();
+      final handler = _authorizedHandler(repository);
+
+      final channel = await handler(
+        Request(
+          'PUT',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/channels/ops_email',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: jsonEncode(<String, Object?>{
+            'channelId': 'ops_email',
+            'displayName': 'Ops',
+            'type': 'email',
+            'recipients': <String>['Ops@Example.com'],
+          }),
+        ),
+      );
+      expect(channel.statusCode, 200);
+      expect(repository.lastAlertingWriter, 'operator@example.com');
+      expect(
+        repository.alerting.channels.single.recipients,
+        <String>['ops@example.com'],
+      );
+
+      final policy = await handler(
+        Request(
+          'PUT',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/policies/p1',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: jsonEncode(<String, Object?>{
+            'policyId': 'p1',
+            'displayName': 'Checkout regressions',
+            'rules': <Object?>[
+              <String, Object?>{
+                'field': 'title',
+                'operator': 'contains',
+                'value': 'checkout',
+              },
+            ],
+            'tags': <String>['Checkout', 'checkout'],
+            'channelIds': <String>['ops_email'],
+          }),
+        ),
+      );
+      expect(policy.statusCode, 200);
+      expect(repository.alerting.policies.single.tags, <String>['checkout']);
+    });
+
+    test('a channel a policy still names cannot be deleted', () async {
+      // Cascading would leave a policy that looks configured and notifies
+      // nobody, which is the failure this surface exists to prevent.
+      final repository = _FakeRepository()
+        ..alerting = const ArmAlertingConfiguration(
+          projectId: 'customer-ops',
+          channels: <ArmNotificationChannel>[
+            ArmNotificationChannel(
+              channelId: 'ops_email',
+              displayName: 'Ops',
+              type: ArmChannelType.email,
+              recipients: <String>['ops@example.com'],
+            ),
+          ],
+          policies: <ArmPolicyRecord>[
+            ArmPolicyRecord(
+              policyId: 'p1',
+              displayName: 'Checkout',
+              rules: <ArmPolicyRule>[
+                ArmPolicyRule(
+                  field: ArmPolicyField.title,
+                  operator: ArmPolicyOperator.contains,
+                  value: 'checkout',
+                ),
+              ],
+              channelIds: <String>['ops_email'],
+            ),
+          ],
+        );
+      final handler = _authorizedHandler(repository);
+
+      final response = await handler(
+        Request(
+          'DELETE',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/channels/ops_email',
+          ),
+          headers: const <String, String>{'authorization': 'Bearer oidc'},
+        ),
+      );
+
+      expect(response.statusCode, 412);
+      expect(await response.readAsString(), contains('p1'));
+    });
+
+    test('a policy with no rules is refused', () async {
+      // It would match every fingerprint, which is never what anybody meant.
+      final handler = _authorizedHandler(_FakeRepository());
+      final response = await handler(
+        Request(
+          'PUT',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/policies/p1',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: jsonEncode(<String, Object?>{
+            'policyId': 'p1',
+            'displayName': 'Everything',
+            'rules': <Object?>[],
+          }),
+        ),
+      );
+      expect(response.statusCode, 400);
+    });
+
+    test('a webhook over plain HTTP is refused', () async {
+      // A webhook carries a fault report, sometimes with a stack trace in it.
+      final handler = _authorizedHandler(_FakeRepository());
+      final response = await handler(
+        Request(
+          'PUT',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/channels/hook',
+          ),
+          headers: const <String, String>{
+            'authorization': 'Bearer oidc',
+            'content-type': 'application/json; charset=utf-8',
+          },
+          body: jsonEncode(<String, Object?>{
+            'channelId': 'hook',
+            'displayName': 'Hook',
+            'type': 'webhook',
+            'recipients': <String>['http://ops.example.test/hook'],
+          }),
+        ),
+      );
+      expect(response.statusCode, 400);
+    });
+
+    test('a deployment with no transport says so rather than reporting a send',
+        () async {
+      final repository = _FakeRepository()
+        ..alerting = const ArmAlertingConfiguration(
+          projectId: 'customer-ops',
+          channels: <ArmNotificationChannel>[
+            ArmNotificationChannel(
+              channelId: 'ops_email',
+              displayName: 'Ops',
+              type: ArmChannelType.email,
+              recipients: <String>['ops@example.com'],
+            ),
+          ],
+        );
+      final handler = _authorizedHandler(repository);
+
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse(
+            'http://localhost/v1/projects/customer-ops/arm/alerting/channels/ops_email/test',
+          ),
+          headers: const <String, String>{'authorization': 'Bearer oidc'},
+        ),
+      );
+
+      expect(response.statusCode, 503);
+    });
+
     test('rejects unknown query fields and malformed commands safely', () async {
       final repository = _FakeRepository();
       final handler = _authorizedHandler(repository);
@@ -244,6 +571,9 @@ final class _FakeRepository implements ArmEvidenceRepository {
   final List<String> calls = <String>[];
   ArmIssueQuery? lastIssueQuery;
   ArmCaseStatusMutation? lastCaseMutation;
+  ArmCaseSeverityMutation? lastSeverityMutation;
+  ArmIssueTagsMutation? lastTagsMutation;
+  String? lastAlertingWriter;
 
   @override
   Future<ArmCaseDetail?> getCaseDetail({
@@ -286,6 +616,91 @@ final class _FakeRepository implements ArmEvidenceRepository {
       'issue_a',
       handled: capturedHandled,
     ).copyWith(status: mutation.status);
+  }
+
+  final Map<String, ArmTicketRecord> tickets = <String, ArmTicketRecord>{};
+
+  @override
+  Future<ArmTicketPageSlice> listTickets({
+    required String projectId,
+    required ArmTicketQuery query,
+  }) async {
+    calls.add('tickets:$projectId');
+    return ArmTicketPageSlice(
+      tickets: tickets.values.toList(growable: false),
+    );
+  }
+
+  @override
+  Future<ArmTicketRecord?> getTicket({
+    required String projectId,
+    required String ticketId,
+  }) async {
+    calls.add('ticket:$projectId:$ticketId');
+    return tickets[ticketId];
+  }
+
+  @override
+  Future<ArmTicketRecord> writeTicket({
+    required String projectId,
+    required ArmTicketRecord ticket,
+  }) async {
+    calls.add('ticket-write:$projectId:${ticket.ticketId}');
+    tickets[ticket.ticketId] = ticket;
+    return ticket;
+  }
+
+  ArmAlertingConfiguration alerting = const ArmAlertingConfiguration(
+    projectId: 'customer-ops',
+  );
+
+  @override
+  Future<ArmAlertingConfiguration> readAlerting({
+    required String projectId,
+  }) async {
+    calls.add('alerting-read:$projectId');
+    return alerting;
+  }
+
+  @override
+  Future<ArmAlertingConfiguration> writeAlerting({
+    required String projectId,
+    required ArmAlertingConfiguration configuration,
+    required String updatedBy,
+  }) async {
+    calls.add('alerting-write:$projectId');
+    alerting = configuration.copyWith(projectId: projectId);
+    lastAlertingWriter = updatedBy;
+    return alerting;
+  }
+
+  @override
+  Future<ArmCaseRecord?> updateCaseSeverity({
+    required String projectId,
+    required String caseId,
+    required ArmCaseSeverityMutation mutation,
+  }) async {
+    calls.add('case-severity:$projectId:$caseId');
+    lastSeverityMutation = mutation;
+    return _case(caseId, 'issue_a', handled: capturedHandled).copyWith(
+      operatorSeverity: armSeverityWireName(mutation.severity),
+      severityUpdatedBy: mutation.updatedBy,
+      severityUpdatedAt: DateTime.utc(2026, 8, 30),
+    );
+  }
+
+  @override
+  Future<ArmIssueRecord?> updateIssueTags({
+    required String projectId,
+    required String issueId,
+    required ArmIssueTagsMutation mutation,
+  }) async {
+    calls.add('issue-tags:$projectId:$issueId');
+    lastTagsMutation = mutation;
+    return _issue(
+      issueId,
+      DateTime.utc(2026, 7, 18, 2),
+    ).copyWith(tags: mutation.tags);
   }
 
   @override

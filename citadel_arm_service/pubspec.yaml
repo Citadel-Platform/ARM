@@ -14,6 +14,10 @@ dependencies:
   shelf: ^1.4.2
 
 dev_dependencies:
+  # Test-only, and deliberately: the SDK writes ticket documents that this
+  # service reads back, and nothing else holds the two shapes together.
+  arm_tooling_core:
+    path: ../tooling_core
   build_runner: ^2.7.1
   freezed: ^3.2.3
   lints: ^6.0.0

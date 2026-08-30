@@ -19,10 +19,24 @@ class ArmClient {
     this.maxBreadcrumbs = 40,
     this.capturePrints = true,
     this.caseIdExposureThreshold = ArmSeverity.moderate,
+    ArmTicketSink? ticketSink,
+    this.duplicateReportInterval = const Duration(minutes: 5),
+    DateTime Function()? clock,
   }) : _sink = sink,
+       _ticketSink = ticketSink,
+       _clock = clock ?? _utcNow,
        _sessionId = buildArmSessionId(appId);
 
+  static DateTime _utcNow() => DateTime.now().toUtc();
+
   final ArmSink _sink;
+
+  /// Where a support ticket goes, when the application offers one. Absent on
+  /// an application that has not configured tickets, and the ticket API then
+  /// refuses rather than showing somebody a form that discards what they
+  /// wrote.
+  final ArmTicketSink? _ticketSink;
+  final DateTime Function() _clock;
   final String appId;
   final String environment;
   final String? appVersion;
@@ -36,10 +50,68 @@ class ArmClient {
   final bool capturePrints;
   final ArmSeverity caseIdExposureThreshold;
 
+  /// How often one fingerprint may be reported again within a session.
+  ///
+  /// The same fault in a rebuild loop produces the same case a thousand times,
+  /// which costs the client a thousand writes and tells a reader nothing the
+  /// first one did not. Repeats inside this window are counted rather than
+  /// sent, and the next report carries the count — because a loop that erred a
+  /// thousand times and one that erred once must not read the same.
+  final Duration duplicateReportInterval;
+
   final ListQueue<ArmBreadcrumb> _breadcrumbs = ListQueue<ArmBreadcrumb>();
+  final Map<String, _ArmFingerprintSession> _seen =
+      <String, _ArmFingerprintSession>{};
   final String _sessionId;
 
   String get sessionId => _sessionId;
+
+  /// How many captures of [fingerprint] have been suppressed since the last
+  /// one that was actually sent. Zero for a fingerprint never seen.
+  int suppressedCountFor(String fingerprint) =>
+      _seen[fingerprint]?.suppressed ?? 0;
+
+  /// Opens a support ticket, pegged to a case log when there is one.
+  ///
+  /// Called from an error dialog's own button: the person who hit the fault
+  /// gives a way to reach them back, and the ticket names the case log and
+  /// fingerprint so the developer reading it is looking at the same failure.
+  /// Refuses loudly on an application with no ticket sink — a form that
+  /// silently discarded somebody's words would be worse than no button.
+  Future<String> openSupportTicket({
+    required String title,
+    required String description,
+    String? contact,
+    ArmCaptureResult? capture,
+  }) async {
+    final ArmTicketSink? sink = _ticketSink;
+    if (sink == null) {
+      throw StateError(
+        'This application has no ARM ticket sink configured, so a ticket '
+        'cannot be opened.',
+      );
+    }
+    final String ticketId = await sink.open(
+      ArmTicketRequest(
+        title: title,
+        description: description,
+        contact: contact,
+        caseId: capture?.caseId,
+        issueId: capture?.issueId,
+        sessionId: _sessionId,
+      ),
+    );
+    addBreadcrumb(
+      'ARM ticket $ticketId opened',
+      level: 'info',
+      category: 'arm',
+      data: <String, dynamic>{
+        if (capture != null) 'caseId': capture.caseId,
+        if (capture != null) 'issueId': capture.issueId,
+      },
+    );
+    return ticketId;
+  }
 
   void addBreadcrumb(
     String message, {
@@ -95,6 +167,32 @@ class ArmClient {
       message: message,
       stackTrace: stackTrace,
     );
+    // Repeats of one fingerprint inside one session are counted, not sent.
+    // The count travels with the next report that is sent, so nothing about
+    // how often this happened is lost.
+    final DateTime now = _clock();
+    final _ArmFingerprintSession session = _seen.putIfAbsent(
+      fingerprint,
+      _ArmFingerprintSession.new,
+    );
+    if (session.lastReportedAt case final DateTime last
+        when now.difference(last) < duplicateReportInterval) {
+      session.suppressed += 1;
+      addBreadcrumb(
+        'ARM case suppressed as a repeat of $fingerprint',
+        level: 'info',
+        category: 'arm',
+        data: <String, dynamic>{'suppressed': session.suppressed},
+      );
+      final ArmCaptureResult? previous = session.lastResult;
+      if (previous != null) {
+        return previous;
+      }
+    }
+    final int suppressedSinceLastReport = session.suppressed;
+    session.suppressed = 0;
+    session.lastReportedAt = now;
+
     final context = await _buildContext();
     final recoverySnapshot = recoverySnapshotBuilder == null
         ? null
@@ -114,7 +212,13 @@ class ArmClient {
       sessionId: _sessionId,
       breadcrumbs: _breadcrumbs.toList(growable: false),
       context: context,
-      tags: sanitizeArmMap(tags) ?? const <String, dynamic>{},
+      tags: <String, dynamic>{
+        ...?sanitizeArmMap(tags),
+        // Only when there were any. A `0` on every case would be noise on the
+        // overwhelming majority of them.
+        if (suppressedSinceLastReport > 0)
+          'suppressedSinceLastReport': suppressedSinceLastReport,
+      },
       recoverySnapshot: recoverySnapshot,
       screenshot: screenshot,
       appVersion: _normalizedReleaseValue(appVersion),
@@ -133,13 +237,18 @@ class ArmClient {
         'operation': operation,
       },
     );
-    return ArmCaptureResult(
+    final ArmCaptureResult captured = ArmCaptureResult(
       caseId: result.caseId,
       issueId: result.issueId,
       fingerprint: result.fingerprint,
       severity: result.severity,
       caseIdExposed: severity.index >= caseIdExposureThreshold.index,
     );
+    // Kept so a suppressed repeat can answer with the case that was actually
+    // recorded: an error dialog showing "no case id" on the second occurrence
+    // of the same fault would look like the SDK had stopped working.
+    session.lastResult = captured;
+    return captured;
   }
 
   Future<T> runTracked<T>({
@@ -247,4 +356,12 @@ class ArmClient {
 String? _normalizedReleaseValue(String? value) {
   final normalized = value?.trim();
   return normalized == null || normalized.isEmpty ? null : normalized;
+}
+
+
+/// What has already been reported for one fingerprint in this session.
+class _ArmFingerprintSession {
+  DateTime? lastReportedAt;
+  ArmCaptureResult? lastResult;
+  int suppressed = 0;
 }

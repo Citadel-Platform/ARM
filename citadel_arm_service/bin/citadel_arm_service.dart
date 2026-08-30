@@ -31,6 +31,9 @@ Future<void> main() async {
         firestoreApi: firestoreApi,
         registryProjectId: registryProjectId,
       ),
+      // Alerting configuration lives in the registry project, never in a
+      // client's own database: it decides who Citadel sends messages to.
+      registryProjectId: registryProjectId,
       maxScanDocuments: maxScanDocuments,
     ),
   );

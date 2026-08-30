@@ -25,12 +25,36 @@ enum ArmCaseStatus {
   closed,
 }
 
+/// How serious a fault is held to be.
+///
+/// Held apart from status throughout. Status is where triage got to; severity
+/// is how bad the thing is, and a case can be resolved and still have been
+/// critical. A capture arrives with the severity the SDK derived from the
+/// exception, and the person reading it is the one who knows whether that was
+/// right — so it is operator-changeable, and the change is recorded beside the
+/// captured value rather than over it.
+enum ArmSeverity { critical, high, medium, low }
+
 enum ArmPrivateOperation {
   listIssues,
   listCases,
   getCaseDetail,
   updateIssueStatus,
   updateCaseStatus,
+  updateCaseSeverity,
+  updateIssueTags,
+  listTickets,
+  getTicket,
+  createTicket,
+  updateTicketStatus,
+  appendTicketUpdate,
+  updateTicketAccess,
+  readAlerting,
+  writePolicy,
+  deletePolicy,
+  writeChannel,
+  deleteChannel,
+  testChannel,
 }
 
 enum ArmServiceErrorCode {
@@ -68,6 +92,16 @@ abstract class ArmIssueRecord with _$ArmIssueRecord {
     String? appVersion,
     String? buildNumber,
     String? releaseChannel,
+
+    /// What this fingerprint is, in the project's own words.
+    ///
+    /// One list, whether a policy assigned it or a person did. Somebody
+    /// triaging a fault cares that it is a regression, not which of the two
+    /// said so; where a tag came from belongs in the fingerprint's history.
+    ///
+    /// Ordered and deduplicated on write, so a tag set is comparable between
+    /// two reads of the same fingerprint.
+    @Default(<String>[]) List<String> tags,
   }) = _ArmIssueRecord;
 }
 
@@ -98,6 +132,15 @@ abstract class ArmCaseRecord with _$ArmCaseRecord {
     String? appVersion,
     String? buildNumber,
     String? releaseChannel,
+
+    /// The severity an operator set, when one did.
+    ///
+    /// Beside [severity] rather than over it: `severity` is what the capture
+    /// arrived with, and losing that would make "did we treat this as urgent,
+    /// and were we right to" unanswerable afterwards.
+    String? operatorSeverity,
+    String? severityUpdatedBy,
+    DateTime? severityUpdatedAt,
   }) = _ArmCaseRecord;
 }
 
@@ -176,6 +219,24 @@ abstract class ArmCaseStatusPatch with _$ArmCaseStatusPatch {
 }
 
 @freezed
+abstract class ArmCaseSeverityPatch with _$ArmCaseSeverityPatch {
+  const factory ArmCaseSeverityPatch({required ArmSeverity severity}) =
+      _ArmCaseSeverityPatch;
+}
+
+/// A tag change, as a whole set rather than an add and a remove.
+///
+/// Two operators editing the same fingerprint's tags at once would otherwise
+/// interleave into a set neither of them chose. Sending the whole set makes
+/// the last write win visibly instead of silently.
+@freezed
+abstract class ArmIssueTagsPatch with _$ArmIssueTagsPatch {
+  const factory ArmIssueTagsPatch({
+    @Default(<String>[]) List<String> tags,
+  }) = _ArmIssueTagsPatch;
+}
+
+@freezed
 abstract class ArmAuthorizedPrincipal with _$ArmAuthorizedPrincipal {
   const factory ArmAuthorizedPrincipal({
     required String actorId,
@@ -222,6 +283,24 @@ abstract class ArmCaseStatusMutation with _$ArmCaseStatusMutation {
 }
 
 @freezed
+abstract class ArmCaseSeverityMutation with _$ArmCaseSeverityMutation {
+  const factory ArmCaseSeverityMutation({
+    required ArmSeverity severity,
+    required String updatedBy,
+    @Default('citadel_platform_operator') String severitySource,
+  }) = _ArmCaseSeverityMutation;
+}
+
+@freezed
+abstract class ArmIssueTagsMutation with _$ArmIssueTagsMutation {
+  const factory ArmIssueTagsMutation({
+    required List<String> tags,
+    required String updatedBy,
+    @Default('citadel_platform_operator') String tagSource,
+  }) = _ArmIssueTagsMutation;
+}
+
+@freezed
 abstract class ArmServiceError with _$ArmServiceError {
   const factory ArmServiceError({
     required ArmServiceErrorCode code,
@@ -234,3 +313,309 @@ abstract class ArmServiceError with _$ArmServiceError {
 
 typedef ArmPrivateRequestAuthorizer =
     FutureOr<ArmAuthorizedPrincipal?> Function(ArmAuthorizationRequest request);
+
+// ---------------------------------------------------------------------------
+// Alerting: policies and notification channels (Feature 1.4.6)
+// ---------------------------------------------------------------------------
+
+/// Which field of a fingerprint a rule looks at.
+///
+/// A closed set, because a rule naming a field nothing stores is a rule that
+/// silently never matches — and a policy that never matches looks exactly like
+/// one that is working and finding nothing.
+enum ArmPolicyField {
+  title,
+  severity,
+  errorType,
+  status,
+  releaseVersion,
+  caseCount,
+}
+
+/// How a rule compares.
+enum ArmPolicyOperator {
+  contains,
+  notContains,
+  equals,
+  notEquals,
+  startsWith,
+  atLeast,
+}
+
+/// How a rule joins the one before it.
+///
+/// Flat, left to right. Groups are deliberately not modelled: a stored shape
+/// the evaluator cannot evaluate is worse than one that admits it does not
+/// nest, and adding nesting later is a change to the model and the evaluator
+/// together rather than to the model alone.
+enum ArmPolicyJoin { and, or }
+
+enum ArmChannelType { email, whatsApp, webhook }
+
+@freezed
+abstract class ArmPolicyRule with _$ArmPolicyRule {
+  const factory ArmPolicyRule({
+    @Default(ArmPolicyJoin.and) ArmPolicyJoin join,
+    required ArmPolicyField field,
+    required ArmPolicyOperator operator,
+    required String value,
+  }) = _ArmPolicyRule;
+}
+
+/// What a policy does when a fingerprint matches it.
+///
+/// Tagging happens whether or not anybody is notified, which is why the
+/// channel list may be empty and the tag list may not: a policy that neither
+/// tags nor notifies is a rule nobody can observe running.
+@freezed
+abstract class ArmPolicyRecord with _$ArmPolicyRecord {
+  const factory ArmPolicyRecord({
+    required String policyId,
+    required String displayName,
+    @Default(true) bool enabled,
+    @Default(<ArmPolicyRule>[]) List<ArmPolicyRule> rules,
+    @Default(<String>[]) List<String> tags,
+    @Default(<String>[]) List<String> channelIds,
+    DateTime? updatedAt,
+    String? updatedBy,
+  }) = _ArmPolicyRecord;
+}
+
+/// Where a matching fingerprint is sent.
+///
+/// Recipients are typed to the channel — addresses for email, numbers for
+/// WhatsApp, one URL for a webhook — and validated against that type rather
+/// than accepted as strings, because a malformed recipient is a notification
+/// nobody receives and nobody knows was not received.
+@freezed
+abstract class ArmNotificationChannel with _$ArmNotificationChannel {
+  const factory ArmNotificationChannel({
+    required String channelId,
+    required String displayName,
+    required ArmChannelType type,
+    @Default(<String>[]) List<String> recipients,
+    @Default(true) bool enabled,
+    DateTime? lastTestedAt,
+    String? lastTestOutcome,
+    DateTime? updatedAt,
+    String? updatedBy,
+  }) = _ArmNotificationChannel;
+}
+
+@freezed
+abstract class ArmAlertingConfiguration with _$ArmAlertingConfiguration {
+  const factory ArmAlertingConfiguration({
+    required String projectId,
+    @Default(<ArmPolicyRecord>[]) List<ArmPolicyRecord> policies,
+    @Default(<ArmNotificationChannel>[]) List<ArmNotificationChannel> channels,
+  }) = _ArmAlertingConfiguration;
+}
+
+/// What happened when a channel was tested.
+///
+/// Names the recipients it reached rather than reporting a bare boolean: a
+/// test that "succeeded" without saying where it went proves the code path
+/// and not the configuration, and the configuration is the thing that is
+/// usually wrong.
+@freezed
+abstract class ArmChannelTestOutcome with _$ArmChannelTestOutcome {
+  const factory ArmChannelTestOutcome({
+    required String channelId,
+    required bool delivered,
+    required DateTime testedAt,
+    @Default(<String>[]) List<String> reached,
+    String? reason,
+  }) = _ArmChannelTestOutcome;
+}
+
+/// Sends a message on a channel.
+///
+/// A seam rather than a client, so what has to be testable is the rule about
+/// which recipients a test reaches, not anybody's transport. Absent, the
+/// service says it cannot test rather than reporting a delivery that did not
+/// happen.
+typedef ArmChannelSender =
+    Future<ArmChannelTestOutcome> Function(
+      ArmNotificationChannel channel,
+      String body,
+    );
+
+// ---------------------------------------------------------------------------
+// Tickets (Feature 1.5)
+// ---------------------------------------------------------------------------
+
+/// Where a ticket has got to.
+///
+/// Four states, and deliberately not the six a case has: a case's status is
+/// triage of evidence, and a ticket's is a promise to a person who is waiting.
+/// `investigating` and `inProgress` are both "we are on it", kept apart
+/// because the first means nobody knows what is wrong yet and the second means
+/// somebody is fixing it, and a customer reads those very differently.
+enum ArmTicketStatus { open, investigating, inProgress, closed }
+
+/// Who wrote an entry in a ticket's history.
+///
+/// Recorded rather than inferred from the address: the same person may write
+/// as a customer on one ticket and as an operator on another, and a history
+/// that guessed would attribute a promise to the wrong side of it.
+enum ArmTicketAuthorKind { endUser, operator }
+
+/// One file on a ticket or one of its updates.
+///
+/// The bytes are never here. A ticket document is read by the Console, by the
+/// public ticket route and by anybody the allowlist admits, and an image
+/// inlined into it would be copied into every one of those reads.
+@freezed
+abstract class ArmTicketAttachment with _$ArmTicketAttachment {
+  const factory ArmTicketAttachment({
+    required String attachmentId,
+    required String fileName,
+    required String contentType,
+    required int sizeBytes,
+
+    /// Where the bytes are, in the project's own storage. Resolved to a
+    /// time-limited URL at read time by whoever is allowed to read it, never
+    /// stored as one.
+    required String storagePath,
+  }) = _ArmTicketAttachment;
+}
+
+/// One timestamped entry in a ticket's history.
+///
+/// Markdown, because both sides write into the same thread and a customer
+/// pasting a log needs it to survive. Rendered by the reader, never by the
+/// writer: a stored rendering is a stored decision about how much HTML to
+/// trust.
+@freezed
+abstract class ArmTicketUpdate with _$ArmTicketUpdate {
+  const factory ArmTicketUpdate({
+    required String updateId,
+    required ArmTicketAuthorKind authorKind,
+
+    /// How the author is named to a reader. An operator's address, or what the
+    /// customer gave when they opened the ticket.
+    required String authorLabel,
+    required String body,
+    required DateTime createdAt,
+    @Default(<ArmTicketAttachment>[]) List<ArmTicketAttachment> attachments,
+  }) = _ArmTicketUpdate;
+}
+
+/// A support ticket: one person waiting, and everything said to them.
+///
+/// Pegged to evidence rather than containing it. A ticket names the case logs
+/// and the fingerprint it is about, so that "which faults did customers
+/// actually write in about" is answerable — and so that the evidence itself
+/// stays in one place, under the redaction the Console already applies.
+@freezed
+abstract class ArmTicketRecord with _$ArmTicketRecord {
+  const factory ArmTicketRecord({
+    required String ticketId,
+    required String title,
+    required String description,
+    required ArmTicketStatus status,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+
+    /// Who opened it, as they identified themselves. An address or a number
+    /// typed into an error dialog — never verified, and never treated as
+    /// though it were.
+    String? reporterContact,
+
+    /// Whether Citadel or a person opened it. `citadel_arm_client` for one
+    /// raised from an error dialog.
+    required String createdBy,
+
+    /// The evidence this ticket is about.
+    @Default(<String>[]) List<String> caseIds,
+    String? issueId,
+    String? sessionId,
+
+    /// Who may read it, beyond anybody with the link.
+    ///
+    /// Empty means the link is the access control, and a ticket in that state
+    /// is served without its evidence coordinates: a public link carries the
+    /// conversation, never the stack trace and session it points at.
+    @Default(<String>[]) List<String> allowlist,
+    @Default(<ArmTicketUpdate>[]) List<ArmTicketUpdate> updates,
+    @Default(<ArmTicketAttachment>[]) List<ArmTicketAttachment> attachments,
+    String? statusUpdatedBy,
+    DateTime? statusUpdatedAt,
+  }) = _ArmTicketRecord;
+}
+
+/// Whether a ticket's link alone is enough to read it.
+extension ArmTicketAccessModel on ArmTicketRecord {
+  bool get isPublicByLink => allowlist.isEmpty;
+}
+
+@freezed
+abstract class ArmTicketQuery with _$ArmTicketQuery {
+  const factory ArmTicketQuery({
+    ArmTicketStatus? status,
+    String? issueId,
+    @Default(armDefaultPageSize) int pageSize,
+    ArmPageCursor? cursor,
+  }) = _ArmTicketQuery;
+}
+
+@freezed
+abstract class ArmTicketPage with _$ArmTicketPage {
+  const factory ArmTicketPage({
+    required String projectId,
+    @Default(<ArmTicketRecord>[]) List<ArmTicketRecord> tickets,
+    String? nextPageToken,
+  }) = _ArmTicketPage;
+}
+
+@freezed
+abstract class ArmTicketPageSlice with _$ArmTicketPageSlice {
+  const factory ArmTicketPageSlice({
+    @Default(<ArmTicketRecord>[]) List<ArmTicketRecord> tickets,
+    @Default(false) bool hasMore,
+  }) = _ArmTicketPageSlice;
+}
+
+/// What is needed to open a ticket.
+///
+/// The id is not here: it is minted by the service, because a caller that
+/// chooses ticket ids can overwrite somebody else's ticket by choosing theirs.
+@freezed
+abstract class ArmTicketDraft with _$ArmTicketDraft {
+  const factory ArmTicketDraft({
+    required String title,
+    required String description,
+    String? reporterContact,
+    @Default(<String>[]) List<String> caseIds,
+    String? issueId,
+    String? sessionId,
+    @Default(<String>[]) List<String> allowlist,
+    @Default(<ArmTicketAttachment>[]) List<ArmTicketAttachment> attachments,
+  }) = _ArmTicketDraft;
+}
+
+/// One entry somebody is adding to a ticket's history.
+@freezed
+abstract class ArmTicketUpdateDraft with _$ArmTicketUpdateDraft {
+  const factory ArmTicketUpdateDraft({
+    required ArmTicketAuthorKind authorKind,
+    required String body,
+    @Default(<ArmTicketAttachment>[]) List<ArmTicketAttachment> attachments,
+  }) = _ArmTicketUpdateDraft;
+}
+
+@freezed
+abstract class ArmTicketStatusPatch with _$ArmTicketStatusPatch {
+  const factory ArmTicketStatusPatch({required ArmTicketStatus status}) =
+      _ArmTicketStatusPatch;
+}
+
+/// A whole allowlist, for the same reason a tag change is a whole set: two
+/// operators adding one address each would otherwise interleave into a list
+/// neither of them chose.
+@freezed
+abstract class ArmTicketAccessPatch with _$ArmTicketAccessPatch {
+  const factory ArmTicketAccessPatch({
+    @Default(<String>[]) List<String> allowlist,
+  }) = _ArmTicketAccessPatch;
+}

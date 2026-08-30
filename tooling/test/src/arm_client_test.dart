@@ -225,6 +225,132 @@ void main() {
       },
     );
   });
+
+  group('duplicate suppression', () {
+    test('one fingerprint is reported once and the repeats are counted', () async {
+      final _FakeArmSink sink = _FakeArmSink();
+      DateTime now = DateTime.utc(2026, 8, 31, 3);
+      final ArmClient client = ArmClient(
+        sink: sink,
+        appId: 'citadel-platform',
+        environment: 'test',
+        clock: () => now,
+      );
+      final StackTrace stackTrace = StackTrace.fromString(
+        '#0      submit (package:citadel/checkout.dart:10:2)\n',
+      );
+
+      Future<ArmCaptureResult> capture() => client.captureException(
+        error: StateError('the same fault'),
+        stackTrace: stackTrace,
+        feature: 'checkout',
+        operation: 'submit',
+      );
+
+      final ArmCaptureResult first = await capture();
+      for (int repeat = 0; repeat < 5; repeat += 1) {
+        now = now.add(const Duration(seconds: 2));
+        final ArmCaptureResult again = await capture();
+        // The dialog still has a case to name: reporting no case id on the
+        // second occurrence would look like the SDK had stopped working.
+        expect(again.caseId, first.caseId);
+      }
+
+      // One write, not six.
+      expect(sink.requests.length, 1);
+      expect(client.suppressedCountFor(first.fingerprint), 5);
+
+      // And once the window is past, the count travels with the next report.
+      now = now.add(const Duration(minutes: 6));
+      await capture();
+      expect(sink.requests.length, 2);
+      expect(sink.requests.last.tags['suppressedSinceLastReport'], 5);
+      expect(client.suppressedCountFor(first.fingerprint), 0);
+    });
+
+    test('a different fault is never suppressed by another one', () async {
+      final _FakeArmSink sink = _FakeArmSink();
+      final ArmClient client = ArmClient(
+        sink: sink,
+        appId: 'citadel-platform',
+        environment: 'test',
+        clock: () => DateTime.utc(2026, 8, 31, 3),
+      );
+
+      await client.captureException(
+        error: StateError('one fault'),
+        stackTrace: StackTrace.fromString('#0 a (package:x/a.dart:1:1)\n'),
+        feature: 'checkout',
+        operation: 'submit',
+      );
+      await client.captureException(
+        error: ArgumentError('another fault'),
+        stackTrace: StackTrace.fromString('#0 b (package:x/b.dart:1:1)\n'),
+        feature: 'checkout',
+        operation: 'submit',
+      );
+
+      expect(sink.requests.length, 2);
+    });
+  });
+
+  group('support tickets', () {
+    test('a ticket names the case log and the session it came from', () async {
+      final _FakeArmSink sink = _FakeArmSink();
+      final _FakeTicketSink tickets = _FakeTicketSink();
+      final ArmClient client = ArmClient(
+        sink: sink,
+        ticketSink: tickets,
+        appId: 'citadel-platform',
+        environment: 'test',
+      );
+      final ArmCaptureResult capture = await client.captureException(
+        error: StateError('checkout failed'),
+        stackTrace: StackTrace.current,
+        feature: 'checkout',
+        operation: 'submit',
+      );
+
+      final String ticketId = await client.openSupportTicket(
+        title: 'Checkout will not submit',
+        description: 'It spins and then nothing happens.',
+        contact: 'buyer@example.com',
+        capture: capture,
+      );
+
+      expect(ticketId, isNotEmpty);
+      final ArmTicketRequest request = tickets.requests.single;
+      // This is what pegs a fault nobody could name to a person waiting.
+      expect(request.caseId, capture.caseId);
+      expect(request.issueId, capture.issueId);
+      expect(request.sessionId, client.sessionId);
+      expect(request.contact, 'buyer@example.com');
+    });
+
+    test('an application with no ticket sink refuses instead of discarding',
+        () async {
+      final ArmClient client = ArmClient(
+        sink: _FakeArmSink(),
+        appId: 'citadel-platform',
+        environment: 'test',
+      );
+
+      await expectLater(
+        client.openSupportTicket(title: 'A', description: 'B'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+}
+
+class _FakeTicketSink implements ArmTicketSink {
+  final List<ArmTicketRequest> requests = <ArmTicketRequest>[];
+
+  @override
+  Future<String> open(ArmTicketRequest request) async {
+    requests.add(request);
+    return buildArmTicketId();
+  }
 }
 
 class _FakeArmSink implements ArmSink {
