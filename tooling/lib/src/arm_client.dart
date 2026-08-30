@@ -158,6 +158,15 @@ class ArmClient {
     ArmSnapshotBuilder? recoverySnapshotBuilder,
     ArmScreenshotCapture? screenshotCapture,
     bool handled = false,
+
+    /// Whether a repeat of this fingerprint inside the session may be
+    /// suppressed.
+    ///
+    /// False for a capture somebody asked for on purpose — the one attached to
+    /// a support ticket, chiefly. That capture is evidence a person chose to
+    /// send, and answering it with an earlier case id would attach a ticket to
+    /// a case log nobody meant to point at.
+    bool deduplicate = true,
   }) async {
     final message = error.toString();
     final fingerprint = buildArmFingerprint(
@@ -175,7 +184,10 @@ class ArmClient {
       fingerprint,
       _ArmFingerprintSession.new,
     );
-    if (session.lastReportedAt case final DateTime last
+    final DateTime? lastReportedAt = deduplicate
+        ? session.lastReportedAt
+        : null;
+    if (lastReportedAt case final DateTime last
         when now.difference(last) < duplicateReportInterval) {
       session.suppressed += 1;
       addBreadcrumb(

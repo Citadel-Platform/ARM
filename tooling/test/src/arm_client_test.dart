@@ -268,6 +268,38 @@ void main() {
       expect(client.suppressedCountFor(first.fingerprint), 0);
     });
 
+    test('a capture somebody asked for is never suppressed', () async {
+      final _FakeArmSink sink = _FakeArmSink();
+      final ArmClient client = ArmClient(
+        sink: sink,
+        appId: 'citadel-platform',
+        environment: 'test',
+        clock: () => DateTime.utc(2026, 8, 31, 3),
+      );
+      final StackTrace stackTrace = StackTrace.fromString(
+        '#0      submit (package:citadel/checkout.dart:10:2)\n',
+      );
+
+      Future<ArmCaptureResult> capture({required bool deduplicate}) =>
+          client.captureException(
+            error: StateError('the same fault'),
+            stackTrace: stackTrace,
+            feature: 'checkout',
+            operation: 'submit',
+            deduplicate: deduplicate,
+          );
+
+      await capture(deduplicate: true);
+      await capture(deduplicate: true);
+      expect(sink.requests.length, 1);
+
+      // The one a person attaches to a ticket is evidence they chose to send:
+      // answering it with an earlier case id would attach the ticket to a case
+      // log nobody meant to point at.
+      await capture(deduplicate: false);
+      expect(sink.requests.length, 2);
+    });
+
     test('a different fault is never suppressed by another one', () async {
       final _FakeArmSink sink = _FakeArmSink();
       final ArmClient client = ArmClient(
