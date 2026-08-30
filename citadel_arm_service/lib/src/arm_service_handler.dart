@@ -132,10 +132,15 @@ Handler createArmPrivateServiceHandler({
                 projectId: route.projectId,
                 ticketId: route.resourceId!,
                 draft: draft,
-                // Named from the verified caller, never from the body. An
-                // author label a caller chose is a message anybody can sign
-                // as somebody else.
-                authorLabel: principal.actorEmail ?? principal.actorId,
+                // Named here, never from the body. An author label a caller
+                // chose is a message anybody can sign as somebody else — so a
+                // customer's entry is attributed to the constant `Customer`,
+                // and an operator's to the identity the Platform API
+                // authenticated and forwarded.
+                authorLabel:
+                    draft.authorKind == ArmTicketAuthorKind.endUser
+                    ? 'Customer'
+                    : (principal.actorEmail ?? principal.actorId),
               ),
             ),
           });
