@@ -89,6 +89,53 @@ void main() {
       expect(view.updates.single.body, 'It spins and then nothing happens.');
     });
 
+    test('a public view keeps the files and loses where they are stored', () {
+      const ArmTicketAttachment screenshot = ArmTicketAttachment(
+        attachmentId: 'attachment_a',
+        fileName: 'checkout.png',
+        contentType: 'image/png',
+        sizeBytes: 81_233,
+        storagePath: 'gs://customer-ops-arm-evidence/tickets/ticket_a/a.png',
+      );
+      final ArmTicketRecord ticket = _ticket(
+        allowlist: const <String>[],
+      ).copyWith(
+        attachments: const <ArmTicketAttachment>[screenshot],
+        updates: <ArmTicketUpdate>[
+          ArmTicketUpdate(
+            updateId: 'update_a',
+            authorKind: ArmTicketAuthorKind.endUser,
+            authorLabel: 'buyer@example.com',
+            body: 'Here is what I see.',
+            createdAt: DateTime.utc(2026, 8, 31, 3),
+            attachments: const <ArmTicketAttachment>[screenshot],
+          ),
+        ],
+      );
+
+      final ArmTicketRecord view = armPublicTicketView(ticket);
+
+      // Somebody who sent a screenshot should be able to see that it arrived.
+      expect(view.attachments.single.fileName, 'checkout.png');
+      expect(view.attachments.single.sizeBytes, 81_233);
+      // Where it sits is Citadel's storage layout, not theirs, and the id is
+      // the only handle a reader needs to ask for a file.
+      expect(view.attachments.single.storagePath, isNull);
+      expect(view.updates.single.attachments.single.storagePath, isNull);
+      expect(view.updates.single.attachments.single.attachmentId, 'attachment_a');
+      // The bucket does not survive being encoded either.
+      expect(
+        jsonEncode(encodeArmTicketRecord(view)),
+        isNot(contains('customer-ops-arm-evidence')),
+      );
+      // And what came back still decodes, so a redacted ticket is a ticket.
+      final ArmTicketRecord round = decodeArmTicketRecord(
+        jsonDecode(jsonEncode(encodeArmTicketRecord(view))),
+        r'$',
+      );
+      expect(round.attachments.single.storagePath, isNull);
+    });
+
     test('an allowlisted ticket is not readable on an unproven address', () {
       final ticket = _ticket(allowlist: const <String>['ops@example.com']);
 

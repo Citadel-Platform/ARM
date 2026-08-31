@@ -888,7 +888,9 @@ Map<String, Object?> encodeArmTicketAttachment(ArmTicketAttachment value) =>
       'fileName': value.fileName,
       'contentType': value.contentType,
       'sizeBytes': value.sizeBytes,
-      'storagePath': value.storagePath,
+      // Omitted rather than nulled when it is absent, so a redacted view is
+      // not a document with a hole where a path used to be.
+      if (value.storagePath case final String path) 'storagePath': path,
     };
 
 ArmTicketAttachment decodeArmTicketAttachment(Object? value, String path) {
@@ -900,8 +902,8 @@ ArmTicketAttachment decodeArmTicketAttachment(Object? value, String path) {
       'fileName',
       'contentType',
       'sizeBytes',
-      'storagePath',
     },
+    optional: const <String>{'storagePath'},
     path: path,
   );
   final int size = _int(json['sizeBytes'], '$path.sizeBytes');
@@ -913,7 +915,9 @@ ArmTicketAttachment decodeArmTicketAttachment(Object? value, String path) {
     fileName: _boundedText(json['fileName'], '$path.fileName', 255),
     contentType: _boundedText(json['contentType'], '$path.contentType', 120),
     sizeBytes: size,
-    storagePath: _boundedText(json['storagePath'], '$path.storagePath', 1024),
+    storagePath: json['storagePath'] == null
+        ? null
+        : _boundedText(json['storagePath'], '$path.storagePath', 1024),
   );
 }
 

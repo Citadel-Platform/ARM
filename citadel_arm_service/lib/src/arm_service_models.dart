@@ -476,7 +476,11 @@ abstract class ArmTicketAttachment with _$ArmTicketAttachment {
     /// Where the bytes are, in the project's own storage. Resolved to a
     /// time-limited URL at read time by whoever is allowed to read it, never
     /// stored as one.
-    required String storagePath,
+    ///
+    /// Absent on the public view of a ticket. A bucket and a key are Citadel's
+    /// storage layout, not a customer's business, and the id above is the only
+    /// handle a reader needs to ask for a file they are allowed to have.
+    String? storagePath,
   }) = _ArmTicketAttachment;
 }
 

@@ -68,6 +68,11 @@ ArmTicketAccessDecision armTicketAccess({
 /// reporter's own address goes too — a public link should not publish the
 /// contact details of the person who wrote in — and an entry they wrote is
 /// attributed to `Customer` rather than to their address.
+///
+/// Attachments stay, because a customer who sent a screenshot should see that
+/// it arrived, but their storage paths do not: where a file sits in the
+/// project's own storage is Citadel's layout, and a reader needs only the id
+/// to ask for one.
 ArmTicketRecord armPublicTicketView(ArmTicketRecord ticket) {
   return ticket.copyWith(
     caseIds: const <String>[],
@@ -75,11 +80,22 @@ ArmTicketRecord armPublicTicketView(ArmTicketRecord ticket) {
     sessionId: null,
     reporterContact: null,
     createdBy: ticket.createdBy.contains('@') ? 'Citadel' : ticket.createdBy,
+    attachments: _publicAttachments(ticket.attachments),
     updates: <ArmTicketUpdate>[
       for (final ArmTicketUpdate update in ticket.updates)
-        update.authorKind == ArmTicketAuthorKind.endUser
-            ? update.copyWith(authorLabel: 'Customer')
-            : update,
+        update.copyWith(
+          authorLabel: update.authorKind == ArmTicketAuthorKind.endUser
+              ? 'Customer'
+              : update.authorLabel,
+          attachments: _publicAttachments(update.attachments),
+        ),
     ],
   );
 }
+
+List<ArmTicketAttachment> _publicAttachments(
+  List<ArmTicketAttachment> attachments,
+) => <ArmTicketAttachment>[
+  for (final ArmTicketAttachment attachment in attachments)
+    attachment.copyWith(storagePath: null),
+];
