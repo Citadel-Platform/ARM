@@ -1,3 +1,5 @@
+# Submitted from `citadel_core/arm` so the build context carries both the
+# service and `tooling_core`, which it now depends on by path.
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -5,6 +7,8 @@ steps:
       - --pull
       - --tag
       - ${_IMAGE}
+      - --file
+      - citadel_arm_service/Dockerfile
       - .
 
 images:
