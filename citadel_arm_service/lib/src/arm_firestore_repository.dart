@@ -113,12 +113,8 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       records.add(record);
     }
     records.sort(
-      (left, right) => _compare(
-        right.createdAt,
-        right.caseId,
-        left.createdAt,
-        left.caseId,
-      ),
+      (left, right) =>
+          _compare(right.createdAt, right.caseId, left.createdAt, left.caseId),
     );
 
     final page = _slice<ArmCaseRecord>(
@@ -176,12 +172,8 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
         'statusUpdatedAt': firestore_api.Value(
           timestampValue: _clock().toIso8601String(),
         ),
-        'statusUpdatedBy': firestore_api.Value(
-          stringValue: mutation.updatedBy,
-        ),
-        'statusSource': firestore_api.Value(
-          stringValue: mutation.statusSource,
-        ),
+        'statusUpdatedBy': firestore_api.Value(stringValue: mutation.updatedBy),
+        'statusSource': firestore_api.Value(stringValue: mutation.statusSource),
       },
     );
     if (updated == null) {
@@ -214,12 +206,8 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
         'statusUpdatedAt': firestore_api.Value(
           timestampValue: _clock().toIso8601String(),
         ),
-        'statusUpdatedBy': firestore_api.Value(
-          stringValue: mutation.updatedBy,
-        ),
-        'statusSource': firestore_api.Value(
-          stringValue: mutation.statusSource,
-        ),
+        'statusUpdatedBy': firestore_api.Value(stringValue: mutation.updatedBy),
+        'statusSource': firestore_api.Value(stringValue: mutation.statusSource),
       },
     );
     if (updated == null) {
@@ -482,9 +470,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
     // reader would refuse can never reach storage.
     final String payload = jsonEncode(
       encodeArmAlertingConfiguration(
-        decodeArmAlertingConfiguration(
-          encodeArmAlertingConfiguration(stored),
-        ),
+        decodeArmAlertingConfiguration(encodeArmAlertingConfiguration(stored)),
       ),
     );
     final name = '$_registryDocumentsRoot/$armAlertingCollectionId/$projectId';
@@ -576,6 +562,23 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
   ArmServiceException _upstreamFailure(
     firestore_api.DetailedApiRequestError error,
   ) {
+    // A project that has no Firestore at all, as opposed to one that is
+    // failing.
+    //
+    // ARM turned on for a client whose Firebase has not been connected yet is
+    // the ordinary state of a client mid-onboarding, and Firestore answers it
+    // with a 404 naming the database. Reporting that as "unavailable" made the
+    // Platform API forward a 502 and the Console show a gateway error, so a
+    // setup step nobody had done yet read as an outage. It is a precondition,
+    // it is not retryable, and it names what to do. See F-024.
+    if (error.status == 404) {
+      return const ArmServiceException(
+        code: ArmServiceErrorCode.failedPrecondition,
+        message:
+            'This client has no Firestore database yet. Connect the client\'s '
+            'Firebase project before ARM can read their records.',
+      );
+    }
     if (error.status == 403 || error.status == 401) {
       return const ArmServiceException(
         code: ArmServiceErrorCode.permissionDenied,
@@ -703,9 +706,7 @@ _Page<T> _slice<T>({
       }
     }
   }
-  final remaining = start >= records.length
-      ? <T>[]
-      : records.sublist(start);
+  final remaining = start >= records.length ? <T>[] : records.sublist(start);
   final items = remaining.take(pageSize).toList(growable: false);
   return _Page<T>(items: items, hasMore: remaining.length > items.length);
 }
@@ -821,7 +822,8 @@ Object? _jsonValue(firestore_api.Value value) {
   }
   if (value.arrayValue != null) {
     return <Object?>[
-      for (final item in value.arrayValue!.values ?? const <firestore_api.Value>[])
+      for (final item
+          in value.arrayValue!.values ?? const <firestore_api.Value>[])
         _jsonValue(item),
     ];
   }

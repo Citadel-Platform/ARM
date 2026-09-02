@@ -65,10 +65,10 @@ void main() {
         query: const ArmIssueQuery(pageSize: 2),
       );
 
-      expect(
-        first.issues.map((issue) => issue.issueId),
-        <String>['issue_string_newest', 'issue_timestamp_middle'],
-      );
+      expect(first.issues.map((issue) => issue.issueId), <String>[
+        'issue_string_newest',
+        'issue_timestamp_middle',
+      ]);
       expect(first.nextPageToken, isNotNull);
 
       final second = await service.listIssues(
@@ -79,29 +79,31 @@ void main() {
         ),
       );
 
-      expect(
-        second.issues.map((issue) => issue.issueId),
-        <String>['issue_string_oldest'],
-      );
+      expect(second.issues.map((issue) => issue.issueId), <String>[
+        'issue_string_oldest',
+      ]);
       expect(second.nextPageToken, isNull);
     },
   );
 
-  test('skips evidence that cannot be represented instead of failing', () async {
-    final service = ArmPrivateService(repository: _repository(<String>[]));
+  test(
+    'skips evidence that cannot be represented instead of failing',
+    () async {
+      final service = ArmPrivateService(repository: _repository(<String>[]));
 
-    final page = await service.listCases(
-      projectId: _citadelProjectId,
-      query: const ArmCaseQuery(),
-    );
+      final page = await service.listCases(
+        projectId: _citadelProjectId,
+        query: const ArmCaseQuery(),
+      );
 
-    expect(page.cases.map((item) => item.caseId), <String>[
-      'ARM-20260805-ACAA8AD0',
-    ]);
-    expect(page.cases.single.status, ArmCaseStatus.newCase);
-    expect(page.cases.single.severity, 'moderate');
-    expect(page.cases.single.context['method'], 'POST');
-  });
+      expect(page.cases.map((item) => item.caseId), <String>[
+        'ARM-20260805-ACAA8AD0',
+      ]);
+      expect(page.cases.single.status, ArmCaseStatus.newCase);
+      expect(page.cases.single.severity, 'moderate');
+      expect(page.cases.single.context['method'], 'POST');
+    },
+  );
 
   test('writes only the status envelope when a case is resolved', () async {
     final requests = <String>[];
@@ -159,6 +161,47 @@ void main() {
     );
   });
 
+  test(
+    'a client with no Firestore yet is a precondition, not an outage',
+    () async {
+      // ARM turned on for a client whose Firebase has not been connected is the
+      // ordinary state of a client mid-onboarding. Reporting it as unavailable
+      // made the Platform API forward a 502 and the Console show a gateway
+      // error for a setup step nobody had done yet. See F-024.
+      final repository = FirestoreArmEvidenceRepository(
+        registryProjectId: 'citadel-platform',
+        firestoreApi: firestore_api.FirestoreApi(
+          MockClient((http.Request request) async => _notFound()),
+        ),
+        router: FirestoreArmProjectRouter(
+          firestoreApi: _api(<String>[], _allDocuments()),
+          registryProjectId: _registryProjectId,
+        ),
+      );
+
+      await expectLater(
+        repository.listIssues(
+          projectId: _citadelProjectId,
+          query: const ArmIssueQuery(),
+        ),
+        throwsA(
+          isA<ArmServiceException>()
+              .having(
+                (error) => error.code,
+                'code',
+                ArmServiceErrorCode.failedPrecondition,
+              )
+              .having((error) => error.retryable, 'retryable', isFalse)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Firebase project'),
+              ),
+        ),
+      );
+    },
+  );
+
   test('fails loudly when the collection outgrows the scan limit', () async {
     final repository = FirestoreArmEvidenceRepository(
       registryProjectId: 'citadel-platform',
@@ -185,60 +228,65 @@ void main() {
     );
   });
 
-  test('a ticket is stored whole and read back through its own codec',
-      () async {
-    final requests = <String>[];
-    final repository = _repository(requests);
-    final ArmTicketRecord ticket = ArmTicketRecord(
-      ticketId: 'ticket_a',
-      title: 'Checkout will not submit',
-      description: 'It spins and then nothing happens.',
-      status: ArmTicketStatus.investigating,
-      createdAt: DateTime.utc(2026, 8, 31, 3),
-      updatedAt: DateTime.utc(2026, 8, 31, 4),
-      createdBy: 'citadel_arm_client',
-      reporterContact: 'buyer@example.com',
-      caseIds: const <String>['ARM-20260831-AB12CD34'],
-      issueId: 'issue_checkout',
-      allowlist: const <String>['ops@example.com'],
-      updates: <ArmTicketUpdate>[
-        ArmTicketUpdate(
-          updateId: 'update_a',
-          authorKind: ArmTicketAuthorKind.endUser,
-          authorLabel: 'buyer@example.com',
-          body: 'It spins and then nothing happens.',
-          createdAt: DateTime.utc(2026, 8, 31, 3),
+  test(
+    'a ticket is stored whole and read back through its own codec',
+    () async {
+      final requests = <String>[];
+      final repository = _repository(requests);
+      final ArmTicketRecord ticket = ArmTicketRecord(
+        ticketId: 'ticket_a',
+        title: 'Checkout will not submit',
+        description: 'It spins and then nothing happens.',
+        status: ArmTicketStatus.investigating,
+        createdAt: DateTime.utc(2026, 8, 31, 3),
+        updatedAt: DateTime.utc(2026, 8, 31, 4),
+        createdBy: 'citadel_arm_client',
+        reporterContact: 'buyer@example.com',
+        caseIds: const <String>['ARM-20260831-AB12CD34'],
+        issueId: 'issue_checkout',
+        allowlist: const <String>['ops@example.com'],
+        updates: <ArmTicketUpdate>[
+          ArmTicketUpdate(
+            updateId: 'update_a',
+            authorKind: ArmTicketAuthorKind.endUser,
+            authorLabel: 'buyer@example.com',
+            body: 'It spins and then nothing happens.',
+            createdAt: DateTime.utc(2026, 8, 31, 3),
+          ),
+        ],
+      );
+
+      await repository.writeTicket(
+        projectId: _citadelProjectId,
+        ticket: ticket,
+      );
+      final ArmTicketRecord? read = await repository.getTicket(
+        projectId: _citadelProjectId,
+        ticketId: 'ticket_a',
+      );
+
+      // The history is the document: a partial write of one is a history with a
+      // hole in it, so the whole ticket goes as a single payload.
+      expect(read, ticket);
+      // And it is written into the client's own boundary, beside the case logs
+      // it points at.
+      expect(
+        requests.any(
+          (String entry) =>
+              entry.startsWith('PATCH') &&
+              entry.contains('/$_customerProjectId/') &&
+              entry.contains('armTickets/ticket_a'),
         ),
-      ],
-    );
-
-    await repository.writeTicket(projectId: _citadelProjectId, ticket: ticket);
-    final ArmTicketRecord? read = await repository.getTicket(
-      projectId: _citadelProjectId,
-      ticketId: 'ticket_a',
-    );
-
-    // The history is the document: a partial write of one is a history with a
-    // hole in it, so the whole ticket goes as a single payload.
-    expect(read, ticket);
-    // And it is written into the client's own boundary, beside the case logs
-    // it points at.
-    expect(
-      requests.any(
-        (String entry) =>
-            entry.startsWith('PATCH') &&
-            entry.contains('/$_customerProjectId/') &&
-            entry.contains('armTickets/ticket_a'),
-      ),
-      isTrue,
-    );
-  });
+        isTrue,
+      );
+    },
+  );
 }
 
 FirestoreArmEvidenceRepository _repository(List<String> requests) {
   final api = _api(requests, _allDocuments());
   return FirestoreArmEvidenceRepository(
-      registryProjectId: 'citadel-platform',
+    registryProjectId: 'citadel-platform',
     firestoreApi: api,
     router: FirestoreArmProjectRouter(
       firestoreApi: api,
@@ -284,11 +332,10 @@ firestore_api.FirestoreApi _api(
           return _notFound();
         }
         final patch = jsonDecode(request.body) as Map<String, Object?>;
-        final fields =
-            Map<String, Object?>.from(
-              (existing?['fields'] ?? const <String, Object?>{})
-                  as Map<String, Object?>,
-            )..addAll(patch['fields']! as Map<String, Object?>);
+        final fields = Map<String, Object?>.from(
+          (existing?['fields'] ?? const <String, Object?>{})
+              as Map<String, Object?>,
+        )..addAll(patch['fields']! as Map<String, Object?>);
         final merged = <String, Object?>{'name': name, 'fields': fields};
         store[name] = merged;
         return _json(merged);
