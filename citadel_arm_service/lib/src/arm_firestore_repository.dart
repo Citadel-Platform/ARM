@@ -72,6 +72,14 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       if (query.since != null && record.lastSeenAt.isBefore(query.since!)) {
         continue;
       }
+      // One database holds every environment, so a caller asking for one gets
+      // one. A record with no environment recorded is excluded from a filtered
+      // read rather than included: it predates the tag and calling it the
+      // asked-for environment would be a claim nobody made.
+      if (query.environment != null &&
+          record.environment != query.environment) {
+        continue;
+      }
       records.add(record);
     }
     records.sort(
@@ -108,6 +116,10 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
         continue;
       }
       if (query.issueId != null && record.issueId != query.issueId) {
+        continue;
+      }
+      if (query.environment != null &&
+          record.environment != query.environment) {
         continue;
       }
       records.add(record);
@@ -616,6 +628,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       appVersion: _optionalText(fields['appVersion']),
       buildNumber: _optionalText(fields['buildNumber']),
       releaseChannel: _optionalText(fields['releaseChannel']),
+      environment: _optionalText(fields['environment']),
       tags: _tagList(fields['tags']),
     );
   }
@@ -655,6 +668,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       appVersion: _optionalText(fields['appVersion']),
       buildNumber: _optionalText(fields['buildNumber']),
       releaseChannel: _optionalText(fields['releaseChannel']),
+      environment: _optionalText(fields['environment']),
       operatorSeverity: _optionalText(fields['operatorSeverity']),
       severityUpdatedBy: _optionalText(fields['severityUpdatedBy']),
       severityUpdatedAt: _timestamp(fields['severityUpdatedAt']),

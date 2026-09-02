@@ -93,6 +93,20 @@ abstract class ArmIssueRecord with _$ArmIssueRecord {
     String? buildNumber,
     String? releaseChannel,
 
+    /// Which of the client's environments this was seen in.
+    ///
+    /// One `citadel-arm` database holds all four — production, staging, test
+    /// and dev — distinguished by this rather than by four databases, because
+    /// Citadel compares them: the same fault in staging and in production is
+    /// one question, and four stores would make it a join nothing can do. See
+    /// DECISIONS.md 02/09/26.
+    ///
+    /// Nullable, and read as "not recorded" rather than defaulted to
+    /// production. A record written before this existed came from an unknown
+    /// environment, and calling it production would put staging noise in front
+    /// of somebody looking at a live incident.
+    String? environment,
+
     /// What this fingerprint is, in the project's own words.
     ///
     /// One list, whether a policy assigned it or a person did. Somebody
@@ -129,6 +143,10 @@ abstract class ArmCaseRecord with _$ArmCaseRecord {
     Map<String, Object?>? recoverySnapshot,
     Map<String, Object?>? screenshot,
     ArmCaseStatus? status,
+
+    /// Which of the client's environments this occurrence came from. See
+    /// [ArmIssueRecord.environment]; null means it was not recorded.
+    String? environment,
     String? appVersion,
     String? buildNumber,
     String? releaseChannel,
@@ -148,6 +166,14 @@ abstract class ArmCaseRecord with _$ArmCaseRecord {
 abstract class ArmIssueQuery with _$ArmIssueQuery {
   const factory ArmIssueQuery({
     DateTime? since,
+
+    /// Restrict to one of the client's environments.
+    ///
+    /// Null means every environment, which is what an operator looking at a
+    /// client as a whole wants. Filtering is opt-in rather than defaulted to
+    /// production: a default would hide staging faults from the page that
+    /// exists to show faults, and nothing would say it had.
+    String? environment,
     @Default(armDefaultPageSize) int pageSize,
     ArmPageCursor? cursor,
   }) = _ArmIssueQuery;
@@ -158,6 +184,9 @@ abstract class ArmCaseQuery with _$ArmCaseQuery {
   const factory ArmCaseQuery({
     DateTime? since,
     String? issueId,
+
+    /// Restrict to one of the client's environments. Null means every one.
+    String? environment,
     @Default(armDefaultPageSize) int pageSize,
     ArmPageCursor? cursor,
   }) = _ArmCaseQuery;
@@ -231,9 +260,8 @@ abstract class ArmCaseSeverityPatch with _$ArmCaseSeverityPatch {
 /// the last write win visibly instead of silently.
 @freezed
 abstract class ArmIssueTagsPatch with _$ArmIssueTagsPatch {
-  const factory ArmIssueTagsPatch({
-    @Default(<String>[]) List<String> tags,
-  }) = _ArmIssueTagsPatch;
+  const factory ArmIssueTagsPatch({@Default(<String>[]) List<String> tags}) =
+      _ArmIssueTagsPatch;
 }
 
 @freezed

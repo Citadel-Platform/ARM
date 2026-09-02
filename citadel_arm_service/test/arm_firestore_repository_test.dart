@@ -163,6 +163,36 @@ void main() {
     );
   });
 
+  test('one database, four environments, and a filter that means it', () async {
+    // A `citadel-arm` database holds every environment's records, tagged,
+    // rather than four databases — Citadel compares them, and the same fault
+    // in staging and in production is one question. Which only works if a
+    // caller asking for one environment gets one. See DECISIONS.md 02/09/26.
+    final repository = FirestoreArmEvidenceRepository(
+      registryProjectId: 'citadel-platform',
+      firestoreApi: _api(<String>[], _allDocuments()),
+      router: FirestoreArmProjectRouter(
+        firestoreApi: _api(<String>[], _allDocuments()),
+        registryProjectId: _registryProjectId,
+      ),
+    );
+
+    final unfiltered = await repository.listIssues(
+      projectId: _citadelProjectId,
+      query: const ArmIssueQuery(),
+    );
+    final staging = await repository.listIssues(
+      projectId: _citadelProjectId,
+      query: const ArmIssueQuery(environment: 'staging'),
+    );
+
+    // The seeded records carry no environment, so a filtered read returns none
+    // of them. Excluded rather than included: they predate the tag, and calling
+    // them staging would be a claim nobody made.
+    expect(unfiltered.issues, isNotEmpty);
+    expect(staging.issues, isEmpty);
+  });
+
   test(
     'a client with no Firestore yet is a precondition, not an outage',
     () async {

@@ -137,8 +137,7 @@ Handler createArmPrivateServiceHandler({
                 // customer's entry is attributed to the constant `Customer`,
                 // and an operator's to the identity the Platform API
                 // authenticated and forwarded.
-                authorLabel:
-                    draft.authorKind == ArmTicketAuthorKind.endUser
+                authorLabel: draft.authorKind == ArmTicketAuthorKind.endUser
                     ? 'Customer'
                     : (principal.actorEmail ?? principal.actorId),
               ),
@@ -519,18 +518,47 @@ _ArmRoute _route(Request request) {
 }
 
 ArmIssueQuery _issueQuery(Map<String, List<String>> parameters) {
-  _queryKeys(parameters, const <String>{'since', 'pageSize', 'pageToken'});
+  _queryKeys(parameters, const <String>{
+    'since',
+    'environment',
+    'pageSize',
+    'pageToken',
+  });
   return ArmIssueQuery(
     since: _since(parameters),
+    // One database holds every environment, so a caller may ask for one.
+    // Absent means all of them, which is what somebody looking at a client as
+    // a whole wants — a default of production would hide staging faults from
+    // the page that exists to show faults.
+    environment: _environment(parameters),
     pageSize: _pageSize(parameters),
     cursor: _pageCursor(parameters),
   );
+}
+
+/// The environment a caller asked to be restricted to.
+///
+/// Validated against the four that exist rather than passed through: this
+/// reaches a query, and a caller who could send anything could ask for an
+/// environment nobody has and be told, correctly, that it has no faults.
+String? _environment(Map<String, List<String>> parameters) {
+  final value = _single(parameters, 'environment');
+  if (value == null) return null;
+  const allowed = <String>{'production', 'staging', 'test', 'dev'};
+  if (!allowed.contains(value)) {
+    throw ArmServiceException(
+      code: ArmServiceErrorCode.invalidArgument,
+      message: 'environment must be one of ${allowed.join(', ')}.',
+    );
+  }
+  return value;
 }
 
 ArmCaseQuery _caseQuery(Map<String, List<String>> parameters) {
   _queryKeys(parameters, const <String>{
     'since',
     'issueId',
+    'environment',
     'pageSize',
     'pageToken',
   });
@@ -538,6 +566,7 @@ ArmCaseQuery _caseQuery(Map<String, List<String>> parameters) {
   return ArmCaseQuery(
     since: _since(parameters),
     issueId: issueId == null ? null : _resourceId(issueId, 'issueId'),
+    environment: _environment(parameters),
     pageSize: _pageSize(parameters),
     cursor: _pageCursor(parameters),
   );

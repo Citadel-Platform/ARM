@@ -31,6 +31,7 @@ Map<String, dynamic> buildArmIssueDocumentMap({
     if (request.buildNumber != null) 'buildNumber': request.buildNumber,
     if (request.releaseChannel != null)
       'releaseChannel': request.releaseChannel,
+    if (request.environment != null) 'environment': request.environment,
   };
 }
 
@@ -67,6 +68,7 @@ Map<String, dynamic> buildArmCaseDocumentMap({
     if (request.buildNumber != null) 'buildNumber': request.buildNumber,
     if (request.releaseChannel != null)
       'releaseChannel': request.releaseChannel,
+    if (request.environment != null) 'environment': request.environment,
     'context': request.context,
     'tags': request.tags,
     'breadcrumbs': request.breadcrumbs.map((item) => item.toMap()).toList(),
