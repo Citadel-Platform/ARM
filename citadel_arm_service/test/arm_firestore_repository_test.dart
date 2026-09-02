@@ -23,9 +23,11 @@ void main() {
       final target = await router.resolve(_citadelProjectId);
 
       expect(target.customerProjectId, _customerProjectId);
+      // `citadel-arm`, not the client's own default database. See
+      // DECISIONS.md 02/09/26.
       expect(
         target.documentsRoot,
-        'projects/$_customerProjectId/databases/(default)/documents',
+        'projects/$_customerProjectId/databases/citadel-arm/documents',
       );
 
       await router.resolve(_citadelProjectId);
@@ -401,7 +403,8 @@ Map<String, Map<String, Object?>> _registryDocuments({bool armEnabled = true}) {
 }
 
 Map<String, Map<String, Object?>> _allDocuments() {
-  const root = 'projects/$_customerProjectId/databases/(default)/documents';
+  // The client's Citadel database, not their own default one.
+  const root = 'projects/$_customerProjectId/databases/citadel-arm/documents';
   return <String, Map<String, Object?>>{
     ..._registryDocuments(),
     // Written by the current server sink as an ISO-8601 string.

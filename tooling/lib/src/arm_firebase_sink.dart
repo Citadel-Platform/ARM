@@ -2,6 +2,23 @@ import 'package:arm_tooling_core/arm_tooling_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+/// Writes ARM evidence into the client's Citadel database.
+///
+/// The Firestore handle is injected rather than created here, so the
+/// application decides which database it writes to — and it must decide
+/// deliberately, because the SDKs default to `(default)` and ARM reads
+/// [armDatabaseId]. An application wired to the default database reports no
+/// errors at all and ARM shows a clean dashboard, which is the worst way for
+/// this to be wrong.
+///
+/// ```dart
+/// FirebaseArmSink(
+///   firestore: FirebaseFirestore.instanceFor(
+///     app: Firebase.app(),
+///     databaseId: armDatabaseId,
+///   ),
+/// )
+/// ```
 class FirebaseArmSink implements ArmSink {
   FirebaseArmSink({
     required FirebaseFirestore firestore,

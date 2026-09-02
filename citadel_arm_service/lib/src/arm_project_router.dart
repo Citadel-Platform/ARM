@@ -3,6 +3,16 @@ import 'package:googleapis/firestore/v1.dart' as firestore_api;
 import 'arm_private_service.dart';
 import 'arm_service_models.dart';
 
+/// The database ARM reads a client's evidence out of.
+///
+/// One database per Citadel product in the client's own project, decided
+/// 02/09/26. ARM's records used to live in the client's `(default)` database
+/// beside their own business collections; a database of its own is what lets
+/// the evidence runtime's IAM grant name exactly what it may read, because
+/// Firestore can scope a grant to a database and cannot scope one to a
+/// collection.
+const String armDatabaseId = 'citadel-arm';
+
 /// The customer boundary a Citadel project's ARM evidence lives in.
 class ArmProjectTarget {
   const ArmProjectTarget({
@@ -17,7 +27,9 @@ class ArmProjectTarget {
   /// The customer Google Cloud project that owns the ARM evidence.
   final String customerProjectId;
 
-  /// The customer Firestore database, `(default)` unless overridden.
+  /// The customer Firestore database. [armDatabaseId] unless the project
+  /// records another, which is how a client onboarded before the split keeps
+  /// reading the records they already have.
   final String databaseId;
 
   String get documentsRoot =>
@@ -103,7 +115,22 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
     final target = ArmProjectTarget(
       projectId: projectId,
       customerProjectId: customerProjectId,
-      databaseId: _string(fields['firestoreDatabaseId']) ?? '(default)',
+      // `citadel-arm`, not the client's `(default)`.
+      //
+      // ARM's records used to be written into whatever default database the
+      // client already had, mixed in beside their own business collections,
+      // where they could collide with a collection the client names. They now
+      // have a database of their own — which is also what makes the IAM
+      // condition on the evidence runtime mean something, because Firestore
+      // can scope a grant to a database and cannot scope one to a collection.
+      // See DECISIONS.md 02/09/26.
+      //
+      // Still overridable per project. A client onboarded before this, whose
+      // records are in `(default)`, keeps reading from there until they are
+      // migrated: the field says where this client's evidence actually is, and
+      // changing the default must not silently repoint them at an empty
+      // database and report that they have no issues.
+      databaseId: _string(fields['firestoreDatabaseId']) ?? armDatabaseId,
     );
     _cache[projectId] = _CachedTarget(
       target: target,
