@@ -1,0 +1,25 @@
+# The ARM evidence service image.
+#
+# A config rather than `--tag`, because the build context is this directory and
+# the Dockerfile is one level down: the service gained a path dependency on
+# `tooling_core` with the ticket codec, so a context of the service directory
+# alone cannot resolve its own pubspec. `--tag` requires the Dockerfile at the
+# context root and there is no way to point it elsewhere.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --pull
+      - --tag
+      - ${_IMAGE}
+      - --file
+      - citadel_arm_service/Dockerfile
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
