@@ -27,9 +27,10 @@ class ArmProjectTarget {
   /// The customer Google Cloud project that owns the ARM evidence.
   final String customerProjectId;
 
-  /// The customer Firestore database. [armDatabaseId] unless the project
-  /// records another, which is how a client onboarded before the split keeps
-  /// reading the records they already have.
+  /// The customer Firestore database, always [armDatabaseId].
+  ///
+  /// Carried on the target rather than read from the constant at each use, so
+  /// the documents root is composed from one value a test can vary.
   final String databaseId;
 
   String get documentsRoot =>
@@ -115,22 +116,20 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
     final target = ArmProjectTarget(
       projectId: projectId,
       customerProjectId: customerProjectId,
-      // `citadel-arm`, not the client's `(default)`.
+      // `citadel-arm`, always.
       //
       // ARM's records used to be written into whatever default database the
       // client already had, mixed in beside their own business collections,
-      // where they could collide with a collection the client names. They now
-      // have a database of their own — which is also what makes the IAM
-      // condition on the evidence runtime mean something, because Firestore
-      // can scope a grant to a database and cannot scope one to a collection.
-      // See DECISIONS.md 02/09/26.
+      // where they could collide with a collection the client names — and
+      // where no IAM grant could separate Citadel's reach from the client's
+      // own data, because Firestore can scope a grant to a database and cannot
+      // scope one to a collection. See DECISIONS.md 02/09/26.
       //
-      // Still overridable per project. A client onboarded before this, whose
-      // records are in `(default)`, keeps reading from there until they are
-      // migrated: the field says where this client's evidence actually is, and
-      // changing the default must not silently repoint them at an empty
-      // database and report that they have no issues.
-      databaseId: _string(fields['firestoreDatabaseId']) ?? armDatabaseId,
+      // Not overridable. A per-project override existed while clients onboarded
+      // before the split still had records in `(default)`; every client is
+      // onboarded into the new topology now, so an override could only point
+      // ARM at a database that is not the one it writes.
+      databaseId: armDatabaseId,
     );
     _cache[projectId] = _CachedTarget(
       target: target,
