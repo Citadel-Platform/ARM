@@ -322,7 +322,12 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
     required String projectId,
     required ArmTicketQuery query,
   }) async {
-    final target = await _router.resolve(projectId);
+    // Manifold, not ARM: a ticket is somebody writing in, and the Helpdesk is
+    // offered to every project with Manifold whether or not it bought ARM.
+    final target = await _router.resolve(
+      projectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
     final documents = await _scanCollection(target, armTicketsCollectionId);
     final records = <ArmTicketRecord>[];
     for (final document in documents) {
@@ -355,7 +360,10 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
     required String projectId,
     required String ticketId,
   }) async {
-    final target = await _router.resolve(projectId);
+    final target = await _router.resolve(
+      projectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
     final document = await _getDocument(
       '${target.documentsRoot}/$armTicketsCollectionId/$ticketId',
     );
@@ -375,7 +383,10 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
     required String projectId,
     required ArmTicketRecord ticket,
   }) async {
-    final target = await _router.resolve(projectId);
+    final target = await _router.resolve(
+      projectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
     // Round-tripped through the codec before it is written, so a shape the
     // reader would refuse can never reach storage.
     final String payload = jsonEncode(

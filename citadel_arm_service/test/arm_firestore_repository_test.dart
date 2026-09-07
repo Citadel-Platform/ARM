@@ -48,12 +48,81 @@ void main() {
     await expectLater(
       router.resolve(_citadelProjectId),
       throwsA(
+        isA<ArmServiceException>()
+            .having(
+              (error) => error.code,
+              'code',
+              ArmServiceErrorCode.failedPrecondition,
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              'ARM is not enabled for this project.',
+            ),
+      ),
+    );
+  });
+
+  // The Helpdesk moved to Manifold on 07/09/26 and its storage did not: tickets
+  // still live in the ARM database and are still served by these routes. The
+  // enablement check did not move with it, so a client with Manifold and no ARM
+  // was offered a Helpdesk that answered 412 on every load — found by driving
+  // the deployed Console on 07/09/26 against a project with Exigence and
+  // Manifold enabled and ARM not.
+  test('a Helpdesk ticket is routed on Manifold, not on ARM', () async {
+    final router = FirestoreArmProjectRouter(
+      firestoreApi: _api(<String>[], _registryDocuments(armEnabled: false)),
+      registryProjectId: _registryProjectId,
+    );
+
+    final target = await router.resolve(
+      _citadelProjectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
+
+    expect(target.customerProjectId, _customerProjectId);
+  });
+
+  test('a Helpdesk ticket is refused when Manifold is not enabled', () async {
+    final router = FirestoreArmProjectRouter(
+      firestoreApi: _api(
+        <String>[],
+        _registryDocuments(manifoldEnabled: false),
+      ),
+      registryProjectId: _registryProjectId,
+    );
+
+    await expectLater(
+      router.resolve(
+        _citadelProjectId,
+        offering: ArmRoutedOffering.helpdesk,
+      ),
+      throwsA(
         isA<ArmServiceException>().having(
-          (error) => error.code,
-          'code',
-          ArmServiceErrorCode.failedPrecondition,
+          (error) => error.message,
+          'message',
+          'Manifold is not enabled for this project.',
         ),
       ),
+    );
+  });
+
+  // The cache is keyed by project, so a Helpdesk call that warmed it must not
+  // let an evidence call skip the ARM check it never made.
+  test('a cached Helpdesk route does not satisfy an evidence read', () async {
+    final router = FirestoreArmProjectRouter(
+      firestoreApi: _api(<String>[], _registryDocuments(armEnabled: false)),
+      registryProjectId: _registryProjectId,
+    );
+
+    await router.resolve(
+      _citadelProjectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
+
+    await expectLater(
+      router.resolve(_citadelProjectId),
+      throwsA(isA<ArmServiceException>()),
     );
   });
 
@@ -402,7 +471,10 @@ http.Response _notFound() => http.Response(
   headers: const <String, String>{'content-type': 'application/json'},
 );
 
-Map<String, Map<String, Object?>> _registryDocuments({bool armEnabled = true}) {
+Map<String, Map<String, Object?>> _registryDocuments({
+  bool armEnabled = true,
+  bool manifoldEnabled = true,
+}) {
   final name =
       'projects/$_registryProjectId/databases/(default)/documents'
       '/platform_projects/$_citadelProjectId';
@@ -421,6 +493,15 @@ Map<String, Map<String, Object?>> _registryDocuments({bool armEnabled = true}) {
                 'mapValue': <String, Object?>{
                   'fields': <String, Object?>{
                     'enabled': <String, Object?>{'booleanValue': armEnabled},
+                  },
+                },
+              },
+              'manifold': <String, Object?>{
+                'mapValue': <String, Object?>{
+                  'fields': <String, Object?>{
+                    'enabled': <String, Object?>{
+                      'booleanValue': manifoldEnabled,
+                    },
                   },
                 },
               },

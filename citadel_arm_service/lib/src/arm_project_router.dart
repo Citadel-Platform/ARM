@@ -37,9 +37,39 @@ class ArmProjectTarget {
       'projects/$customerProjectId/databases/$databaseId/documents';
 }
 
+/// Which offering a caller is acting for when it asks to be routed.
+///
+/// The store this service reads is shared by two products. ARM's issues, cases
+/// and alerting are evidence an SDK captured, and they exist because the client
+/// bought ARM. Helpdesk tickets are a conversation with a person, they are
+/// Manifold's since 07/09/26, and a ticket is opened by somebody typing what is
+/// wrong — it needs no telemetry and so it needs no ARM.
+///
+/// Named on the call rather than inferred, because the two are indistinguishable
+/// once you are inside the repository and getting it wrong is silent: a client
+/// with Manifold and no ARM got a 412 on every Helpdesk load.
+enum ArmRoutedOffering {
+  /// Issues, cases and alerting. Requires `arm` enabled.
+  evidence('ARM', 'arm'),
+
+  /// Helpdesk tickets. Requires `manifold` enabled.
+  helpdesk('Manifold', 'manifold');
+
+  const ArmRoutedOffering(this.label, this.offeringKey);
+
+  /// How the offering is named to an operator in a refusal.
+  final String label;
+
+  /// The key under `offeringScope` in the registry entry.
+  final String offeringKey;
+}
+
 /// Resolves a Citadel project identifier to its customer evidence boundary.
 abstract interface class ArmProjectRouter {
-  Future<ArmProjectTarget> resolve(String projectId);
+  Future<ArmProjectTarget> resolve(
+    String projectId, {
+    ArmRoutedOffering offering,
+  });
 }
 
 /// Reads the Citadel registry (`platform_projects`) to route ARM reads, so the
@@ -63,10 +93,15 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
   final Map<String, _CachedTarget> _cache = <String, _CachedTarget>{};
 
   @override
-  Future<ArmProjectTarget> resolve(String projectId) async {
+  Future<ArmProjectTarget> resolve(
+    String projectId, {
+    ArmRoutedOffering offering = ArmRoutedOffering.evidence,
+  }) async {
     final cached = _cache[projectId];
     final now = _clock();
-    if (cached != null && cached.expiresAt.isAfter(now)) {
+    if (cached != null &&
+        cached.expiresAt.isAfter(now) &&
+        cached.offerings.contains(offering)) {
       return cached.target;
     }
 
@@ -97,10 +132,10 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
         message: 'The project is not active in the Citadel registry.',
       );
     }
-    if (!_armEnabled(fields['offeringScope'])) {
-      throw const ArmServiceException(
+    if (!_offeringEnabled(fields['offeringScope'], offering)) {
+      throw ArmServiceException(
         code: ArmServiceErrorCode.failedPrecondition,
-        message: 'ARM is not enabled for this project.',
+        message: '${offering.label} is not enabled for this project.',
       );
     }
 
@@ -131,16 +166,35 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
       // ARM at a database that is not the one it writes.
       databaseId: armDatabaseId,
     );
+    // Cached against the offerings actually checked on this read, not against
+    // the project alone. One entry keyed by project would let a Helpdesk call
+    // warm the cache and an evidence call then be served from it without ARM
+    // ever having been required — the enablement check silently skipped for
+    // five minutes at a time.
+    final Set<ArmRoutedOffering> offerings = <ArmRoutedOffering>{
+      offering,
+      for (final ArmRoutedOffering other in ArmRoutedOffering.values)
+        if (other != offering && _offeringEnabled(fields['offeringScope'], other))
+          other,
+    };
     _cache[projectId] = _CachedTarget(
       target: target,
       expiresAt: now.add(cacheDuration),
+      offerings: offerings,
     );
     return target;
   }
 
-  bool _armEnabled(firestore_api.Value? offeringScope) {
-    final arm = offeringScope?.mapValue?.fields?['arm']?.mapValue?.fields;
-    return arm?['enabled']?.booleanValue ?? false;
+  bool _offeringEnabled(
+    firestore_api.Value? offeringScope,
+    ArmRoutedOffering offering,
+  ) {
+    final scope = offeringScope
+        ?.mapValue
+        ?.fields?[offering.offeringKey]
+        ?.mapValue
+        ?.fields;
+    return scope?['enabled']?.booleanValue ?? false;
   }
 
   String? _string(firestore_api.Value? value) {
@@ -153,8 +207,16 @@ bool _isGoogleProjectId(String value) =>
     RegExp(r'^[a-z][a-z0-9-]{4,28}[a-z0-9]$').hasMatch(value);
 
 class _CachedTarget {
-  const _CachedTarget({required this.target, required this.expiresAt});
+  const _CachedTarget({
+    required this.target,
+    required this.expiresAt,
+    required this.offerings,
+  });
 
   final ArmProjectTarget target;
   final DateTime expiresAt;
+
+  /// The offerings this project was observed to have enabled when the entry was
+  /// written. A call for an offering outside this set re-reads the registry.
+  final Set<ArmRoutedOffering> offerings;
 }

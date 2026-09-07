@@ -130,7 +130,10 @@ final class _FixedRouter implements ArmProjectRouter {
   const _FixedRouter();
 
   @override
-  Future<ArmProjectTarget> resolve(String projectId) async =>
+  Future<ArmProjectTarget> resolve(
+    String projectId, {
+    ArmRoutedOffering offering = ArmRoutedOffering.evidence,
+  }) async =>
       const ArmProjectTarget(
         projectId: _project,
         customerProjectId: _project,
