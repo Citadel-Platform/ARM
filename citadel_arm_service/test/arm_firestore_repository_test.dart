@@ -63,12 +63,13 @@ void main() {
     );
   });
 
-  // The Helpdesk moved to Manifold on 07/09/26 and its storage did not: tickets
-  // still live in the ARM database and are still served by these routes. The
-  // enablement check did not move with it, so a client with Manifold and no ARM
-  // was offered a Helpdesk that answered 412 on every load — found by driving
-  // the deployed Console on 07/09/26 against a project with Exigence and
-  // Manifold enabled and ARM not.
+  // The Helpdesk moved to Manifold on 07/09/26 and neither its enablement check
+  // nor its storage moved with it. A client with Manifold and no ARM was
+  // offered a Helpdesk that answered 412 on every load — found by driving the
+  // deployed Console on 07/09/26 against a project with Exigence and Manifold
+  // enabled and ARM not. The check moved that day; the storage moved 08/09/26,
+  // because underneath the 412 was a client whose `citadel-arm` database does
+  // not exist, that database being created only when ARM is provisioned.
   test('a Helpdesk ticket is routed on Manifold, not on ARM', () async {
     final router = FirestoreArmProjectRouter(
       firestoreApi: _api(<String>[], _registryDocuments(armEnabled: false)),
@@ -81,6 +82,42 @@ void main() {
     );
 
     expect(target.customerProjectId, _customerProjectId);
+    expect(target.databaseId, 'citadel-manifold');
+    expect(target.documentsRoot, contains('/databases/citadel-manifold/'));
+  });
+
+  // The other half of the same decision: evidence did not move, and must not be
+  // dragged along by the ticket change. Asserted beside it so the pair is read
+  // together rather than one of them being "obviously still true".
+  test('evidence stays in the ARM database', () async {
+    final router = FirestoreArmProjectRouter(
+      firestoreApi: _api(<String>[], _registryDocuments()),
+      registryProjectId: _registryProjectId,
+    );
+
+    final target = await router.resolve(_citadelProjectId);
+
+    expect(target.databaseId, 'citadel-arm');
+  });
+
+  // The cache holds the customer project and derives the database per call. It
+  // held whole targets until 08/09/26, when the database stopped being the same
+  // for both offerings — at which point a warm Helpdesk entry would have served
+  // an evidence read out of `citadel-manifold` for five minutes.
+  test('a warm cache does not cross the two databases', () async {
+    final router = FirestoreArmProjectRouter(
+      firestoreApi: _api(<String>[], _registryDocuments()),
+      registryProjectId: _registryProjectId,
+    );
+
+    final helpdesk = await router.resolve(
+      _citadelProjectId,
+      offering: ArmRoutedOffering.helpdesk,
+    );
+    final evidence = await router.resolve(_citadelProjectId);
+
+    expect(helpdesk.databaseId, 'citadel-manifold');
+    expect(evidence.databaseId, 'citadel-arm');
   });
 
   test('a Helpdesk ticket is refused when Manifold is not enabled', () async {

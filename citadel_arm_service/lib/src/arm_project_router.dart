@@ -13,6 +13,16 @@ import 'arm_service_models.dart';
 /// collection.
 const String armDatabaseId = 'citadel-arm';
 
+/// The database Helpdesk tickets live in.
+///
+/// Tickets were written to [armDatabaseId] until 08/09/26 because the Helpdesk
+/// used to be ARM's. It became Manifold's on 07/09/26 and the storage did not
+/// move with it, which left a client who bought Manifold without ARM with a
+/// Helpdesk and no database to put a ticket in — `citadel-arm` is created when
+/// ARM is provisioned and they had not bought ARM. The database follows the
+/// product that owns the records. See DECISIONS.md 08/09/26.
+const String manifoldDatabaseId = 'citadel-manifold';
+
 /// The customer boundary a Citadel project's ARM evidence lives in.
 class ArmProjectTarget {
   const ArmProjectTarget({
@@ -27,9 +37,10 @@ class ArmProjectTarget {
   /// The customer Google Cloud project that owns the ARM evidence.
   final String customerProjectId;
 
-  /// The customer Firestore database, always [armDatabaseId].
+  /// The customer Firestore database this target reads and writes.
   ///
-  /// Carried on the target rather than read from the constant at each use, so
+  /// [armDatabaseId] for evidence, [manifoldDatabaseId] for Helpdesk tickets.
+  /// Carried on the target rather than read from a constant at each use, so
   /// the documents root is composed from one value a test can vary.
   final String databaseId;
 
@@ -50,18 +61,25 @@ class ArmProjectTarget {
 /// with Manifold and no ARM got a 412 on every Helpdesk load.
 enum ArmRoutedOffering {
   /// Issues, cases and alerting. Requires `arm` enabled.
-  evidence('ARM', 'arm'),
+  evidence('ARM', 'arm', armDatabaseId),
 
   /// Helpdesk tickets. Requires `manifold` enabled.
-  helpdesk('Manifold', 'manifold');
+  helpdesk('Manifold', 'manifold', manifoldDatabaseId);
 
-  const ArmRoutedOffering(this.label, this.offeringKey);
+  const ArmRoutedOffering(this.label, this.offeringKey, this.databaseId);
 
   /// How the offering is named to an operator in a refusal.
   final String label;
 
   /// The key under `offeringScope` in the registry entry.
   final String offeringKey;
+
+  /// The customer Firestore database this offering's records live in.
+  ///
+  /// The two offerings this service answers for are stored apart because they
+  /// are provisioned apart: each database is created only when its product is
+  /// enabled, and a grant can name a database and cannot name a collection.
+  final String databaseId;
 }
 
 /// Resolves a Citadel project identifier to its customer evidence boundary.
@@ -90,7 +108,7 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
   final String registryDatabaseId;
   final Duration cacheDuration;
   final DateTime Function() _clock;
-  final Map<String, _CachedTarget> _cache = <String, _CachedTarget>{};
+  final Map<String, _CachedRoute> _cache = <String, _CachedRoute>{};
 
   @override
   Future<ArmProjectTarget> resolve(
@@ -102,7 +120,15 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
     if (cached != null &&
         cached.expiresAt.isAfter(now) &&
         cached.offerings.contains(offering)) {
-      return cached.target;
+      // Rebuilt for the offering asked about rather than replayed, because the
+      // database is the offering's and only the customer boundary is shared.
+      // Caching a whole target would let a Helpdesk call warm the entry and an
+      // evidence call then be served tickets' database.
+      return ArmProjectTarget(
+        projectId: projectId,
+        customerProjectId: cached.customerProjectId,
+        databaseId: offering.databaseId,
+      );
     }
 
     final name =
@@ -151,20 +177,25 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
     final target = ArmProjectTarget(
       projectId: projectId,
       customerProjectId: customerProjectId,
-      // `citadel-arm`, always.
+      // The database the offering being routed for owns.
       //
-      // ARM's records used to be written into whatever default database the
-      // client already had, mixed in beside their own business collections,
-      // where they could collide with a collection the client names — and
-      // where no IAM grant could separate Citadel's reach from the client's
-      // own data, because Firestore can scope a grant to a database and cannot
-      // scope one to a collection. See DECISIONS.md 02/09/26.
+      // Records used to be written into whatever default database the client
+      // already had, mixed in beside their own business collections, where
+      // they could collide with a collection the client names — and where no
+      // IAM grant could separate Citadel's reach from the client's own data,
+      // because Firestore can scope a grant to a database and cannot scope one
+      // to a collection. See DECISIONS.md 02/09/26.
+      //
+      // Which database is the offering's own, not this service's: evidence in
+      // `citadel-arm`, tickets in `citadel-manifold`. Both are created only
+      // when their product is provisioned, so reading tickets out of ARM's
+      // database left a Manifold-only client with nowhere to put one.
       //
       // Not overridable. A per-project override existed while clients onboarded
       // before the split still had records in `(default)`; every client is
       // onboarded into the new topology now, so an override could only point
-      // ARM at a database that is not the one it writes.
-      databaseId: armDatabaseId,
+      // this service at a database that is not the one it writes.
+      databaseId: offering.databaseId,
     );
     // Cached against the offerings actually checked on this read, not against
     // the project alone. One entry keyed by project would let a Helpdesk call
@@ -177,8 +208,8 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
         if (other != offering && _offeringEnabled(fields['offeringScope'], other))
           other,
     };
-    _cache[projectId] = _CachedTarget(
-      target: target,
+    _cache[projectId] = _CachedRoute(
+      customerProjectId: customerProjectId,
       expiresAt: now.add(cacheDuration),
       offerings: offerings,
     );
@@ -206,14 +237,16 @@ final class FirestoreArmProjectRouter implements ArmProjectRouter {
 bool _isGoogleProjectId(String value) =>
     RegExp(r'^[a-z][a-z0-9-]{4,28}[a-z0-9]$').hasMatch(value);
 
-class _CachedTarget {
-  const _CachedTarget({
-    required this.target,
+class _CachedRoute {
+  const _CachedRoute({
+    required this.customerProjectId,
     required this.expiresAt,
     required this.offerings,
   });
 
-  final ArmProjectTarget target;
+  /// The customer project, which is the only part of a route the two offerings
+  /// share. The database is derived per call from the offering asked about.
+  final String customerProjectId;
   final DateTime expiresAt;
 
   /// The offerings this project was observed to have enabled when the entry was
