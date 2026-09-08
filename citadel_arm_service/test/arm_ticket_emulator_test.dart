@@ -48,7 +48,7 @@ void main() {
       createdAt: DateTime.utc(2026, 8, 31, 3),
       indexedUpdatedAt: DateTime.utc(2026, 8, 31, 3).toIso8601String(),
     );
-    final String name = '$documentsRoot/$armTicketsCollectionId/$ticketId';
+    final String name = '$documentsRoot/$manifoldTicketsCollectionId/$ticketId';
     await api.projects.databases.documents.patch(
       firestore_api.Document(
         name: name,

@@ -12,11 +12,18 @@ const String armCasesCollectionId = 'armCases';
 
 /// Where a project's support tickets live.
 ///
-/// In the client's own boundary, beside the cases they point at: a ticket is
-/// the client's conversation with their own customer, about their own fault.
-/// The allowlist on it is enforced by this service on every read, never by
-/// where the document sits.
-const String armTicketsCollectionId = 'armTickets';
+/// In the client's own boundary, in Manifold's database since 08/09/26: a
+/// ticket is the client's conversation with their own customer, about their own
+/// fault. The allowlist on it is enforced by this service on every read, never
+/// by where the document sits.
+///
+/// Named `manifoldTickets`, not `armTickets`. The 07/09/26 change that moved
+/// the Helpdesk to Manifold kept the old collection id explicitly to avoid
+/// migrating live data. That argument stopped applying when the database moved:
+/// no project has a ticket in `citadel-arm`, so there is nothing to migrate and
+/// carrying ARM's name into Manifold's database would only be the old shape
+/// preserved for its own sake — what AGENTS.md rule 11 exists to stop.
+const String manifoldTicketsCollectionId = 'manifoldTickets';
 
 /// Where a project's alerting policies and channels live.
 ///
@@ -328,7 +335,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       projectId,
       offering: ArmRoutedOffering.helpdesk,
     );
-    final documents = await _scanCollection(target, armTicketsCollectionId);
+    final documents = await _scanCollection(target, manifoldTicketsCollectionId);
     final records = <ArmTicketRecord>[];
     for (final document in documents) {
       final record = _ticketRecord(document);
@@ -365,7 +372,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       offering: ArmRoutedOffering.helpdesk,
     );
     final document = await _getDocument(
-      '${target.documentsRoot}/$armTicketsCollectionId/$ticketId',
+      '${target.documentsRoot}/$manifoldTicketsCollectionId/$ticketId',
     );
     if (document == null) return null;
     final record = _ticketRecord(document);
@@ -395,7 +402,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       ),
     );
     final name =
-        '${target.documentsRoot}/$armTicketsCollectionId/${ticket.ticketId}';
+        '${target.documentsRoot}/$manifoldTicketsCollectionId/${ticket.ticketId}';
     try {
       await _firestoreApi.projects.databases.documents.patch(
         firestore_api.Document(

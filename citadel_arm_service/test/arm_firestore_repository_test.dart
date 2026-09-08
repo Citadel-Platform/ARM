@@ -406,14 +406,17 @@ void main() {
       // The history is the document: a partial write of one is a history with a
       // hole in it, so the whole ticket goes as a single payload.
       expect(read, ticket);
-      // And it is written into the client's own boundary, beside the case logs
-      // it points at.
+      // And it is written into the client's own boundary, in Manifold's
+      // database and Manifold's collection. Both halves matter: the database
+      // is what a Manifold-only client actually has, and the collection is no
+      // longer named for the product that stopped owning tickets.
       expect(
         requests.any(
           (String entry) =>
               entry.startsWith('PATCH') &&
               entry.contains('/$_customerProjectId/') &&
-              entry.contains('armTickets/ticket_a'),
+              entry.contains('/databases/citadel-manifold/') &&
+              entry.contains('manifoldTickets/ticket_a'),
         ),
         isTrue,
       );
