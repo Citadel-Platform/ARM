@@ -609,12 +609,29 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
             'Firebase project before ARM can read their records.',
       );
     }
+    // This runtime's own grant, not the caller's roles.
+    //
+    // Whoever asked was authorized by the Platform API before the request was
+    // proxied here, so a refusal at the customer boundary is never a statement
+    // about them — it is the binding that lets this service read that client's
+    // database, missing. Reported as `permissionDenied` it reached the Console
+    // as 403 and was rendered "Not permitted. Your access does not cover this
+    // in Manifold. Open Palisade → Access…" to an operator holding superdev,
+    // with the real sentence one disclosure away. There is no role in Palisade
+    // that grants a service account on a customer project.
+    //
+    // A precondition, like the 404 above and for the same reason: the product
+    // is on, the caller is allowed, and the client's side of it is not
+    // finished. 412 is what the Console already translates into "not set up
+    // yet — run the setup for this product", which is now the step that makes
+    // the grant. See `G4-64`, and F-024 for the same shape one refusal up.
     if (error.status == 403 || error.status == 401) {
       return const ArmServiceException(
-        code: ArmServiceErrorCode.permissionDenied,
+        code: ArmServiceErrorCode.failedPrecondition,
         message:
-            'The ARM evidence runtime is not authorized on the customer '
-            'Firestore boundary.',
+            'This runtime is not granted on the client\'s Firestore database '
+            'yet. Run the product\'s setup for this project, which creates '
+            'the database and the binding together.',
       );
     }
     return const ArmServiceException(

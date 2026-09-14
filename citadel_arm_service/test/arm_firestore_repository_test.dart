@@ -130,10 +130,7 @@ void main() {
     );
 
     await expectLater(
-      router.resolve(
-        _citadelProjectId,
-        offering: ArmRoutedOffering.helpdesk,
-      ),
+      router.resolve(_citadelProjectId, offering: ArmRoutedOffering.helpdesk),
       throwsA(
         isA<ArmServiceException>().having(
           (error) => error.message,
@@ -340,6 +337,58 @@ void main() {
     },
   );
 
+  test(
+    "a runtime refused at the client's boundary is a precondition too",
+    () async {
+      // `G4-64`. Whoever asked was authorized by the Platform API before the
+      // request reached here, so a 403 from the customer's Firestore is about
+      // this service's own grant and never about the caller's roles. Reported
+      // as `permissionDenied` it arrived in the Console as "Not permitted.
+      // Your access does not cover this in Manifold. Open Palisade → Access…"
+      // — shown to an operator holding superdev, pointing at a page where
+      // there is nothing to fix, because no Palisade role grants a service
+      // account on a customer project.
+      final repository = FirestoreArmEvidenceRepository(
+        registryProjectId: 'citadel-platform',
+        firestoreApi: firestore_api.FirestoreApi(
+          MockClient((http.Request request) async => _forbidden()),
+        ),
+        router: FirestoreArmProjectRouter(
+          firestoreApi: _api(<String>[], _allDocuments()),
+          registryProjectId: _registryProjectId,
+        ),
+      );
+
+      await expectLater(
+        repository.listIssues(
+          projectId: _citadelProjectId,
+          query: const ArmIssueQuery(),
+        ),
+        throwsA(
+          isA<ArmServiceException>()
+              .having(
+                (error) => error.code,
+                'code',
+                ArmServiceErrorCode.failedPrecondition,
+              )
+              .having((error) => error.retryable, 'retryable', isFalse)
+              // Names the grant and the step that makes it, and says nothing
+              // about the caller.
+              .having(
+                (error) => error.message,
+                'message',
+                contains('not granted'),
+              )
+              .having(
+                (error) => error.message,
+                'message',
+                isNot(contains('access')),
+              ),
+        ),
+      );
+    },
+  );
+
   test('fails loudly when the collection outgrows the scan limit', () async {
     final repository = FirestoreArmEvidenceRepository(
       registryProjectId: 'citadel-platform',
@@ -500,6 +549,14 @@ Map<String, Object?> _listResponse(
 http.Response _json(Map<String, Object?> body) => http.Response(
   jsonEncode(body),
   200,
+  headers: const <String, String>{'content-type': 'application/json'},
+);
+
+http.Response _forbidden() => http.Response(
+  jsonEncode(<String, Object?>{
+    'error': <String, Object?>{'code': 403, 'message': 'permission denied'},
+  }),
+  403,
   headers: const <String, String>{'content-type': 'application/json'},
 );
 
