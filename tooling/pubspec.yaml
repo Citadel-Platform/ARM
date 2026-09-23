@@ -9,7 +9,6 @@ topics:
   - monitoring
   - telemetry
   - crash-reporting
-  - firestore
 
 environment:
   sdk: ^3.10.4
@@ -19,12 +18,16 @@ dependencies:
     path: ../tooling_core
   flutter:
     sdk: flutter
-  cloud_firestore: ^5.0.1
-  firebase_storage: ^12.4.10
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # The real ingest handler, so a test sends what the SDK sends to what the
+  # ingest actually parses.
+  citadel_arm_service:
+    path: ../citadel_arm_service
+  shelf: ^1.4.0
   flutter_lints: ^6.0.0
 
 flutter:

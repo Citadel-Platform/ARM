@@ -13,21 +13,12 @@ import 'arm_binary_attachment.dart';
 /// reach from the client's own data, because Firestore can scope a grant to a
 /// database and cannot scope one to a collection.
 ///
-/// The Firebase web and Flutter SDKs talk to `(default)` unless told
-/// otherwise, so an application reporting ARM evidence has to say so:
-///
-/// ```dart
-/// FirebaseArmSink(
-///   firestore: FirebaseFirestore.instanceFor(
-///     app: Firebase.app(),
-///     databaseId: armDatabaseId,
-///   ),
-/// )
-/// ```
-///
-/// Exported as a constant rather than left in a comment because the cost of
-/// getting it wrong is silent: an application that writes to `(default)`
-/// reports no errors at all, and ARM shows the client a clean dashboard.
+/// Every sender reaches it through the shared ARM ingest, which writes it
+/// under its own identity; no client names a database any more. The name is
+/// kept because the services that read and write it must agree on it, and
+/// because a client whose evidence sits in `(default)` — written before the
+/// ingest existed — reports no errors at all rather than an error: ARM reads
+/// only this database.
 const String armDatabaseId = 'citadel-arm';
 
 enum ArmSeverity { info, low, moderate, serious, critical }
