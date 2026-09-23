@@ -40,6 +40,9 @@ function serve(string $router, array $env): array
 /** @return list<array<string, mixed>> every capture recorded so far */
 function received(string $record): array
 {
+    if (str_contains((string) file_get_contents($record), '"refused"')) {
+        check('the ingest\'s type rules accept every batch', false, (string) file_get_contents($record));
+    }
     $captures = [];
     foreach (file($record, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
         $batch = json_decode($line, true);
@@ -121,6 +124,8 @@ check('invalid UTF-8 in a message does not lose the batch', count($c) === 1 && s
 
 $r = script("function f() { throw new \\Error('offline'); }\nf();\n", 'http://10.255.255.1:81', []);
 check('ingest unreachable: still 255, within the timeout', $r['code'] === 255 && $r['ms'] < 4000, "{$r['code']} in {$r['ms']} ms");
+
+check('no batch was refused by the ingest\'s type rules', !str_contains((string) file_get_contents($record), '"refused"'));
 
 // --------------------------------------------------------------------- web
 

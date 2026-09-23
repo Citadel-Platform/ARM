@@ -380,8 +380,12 @@ final class Arm
                 'stackTrace' => Contract::cutUtf8($stack, 16000),
                 'sessionId' => $this->sessionId,
                 'handled' => $input['handled'],
-                'context' => Contract::sanitize($context) ?? [],
-                'tags' => Contract::sanitize($tags) ?? [],
+                // Objects, even when empty: PHP writes an empty array as `[]`,
+                // and the ingest refuses a list where it wants an object — the
+                // whole batch with it. Seen live, 23/09/26: every uncaught
+                // exception (no tags) was answered 400.
+                'context' => (object) (Contract::sanitize($context) ?? []),
+                'tags' => (object) (Contract::sanitize($tags) ?? []),
                 'breadcrumbs' => [],
             ];
             if ($this->options['release'] !== null) {
