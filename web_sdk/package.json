@@ -8,7 +8,7 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "scripts": {
-    "prebuild": "npm --prefix ../../platform/web_core run build",
+    "prebuild": "npm --prefix ../../platform/web_core run build && npm --prefix ../contract/js run build",
     "build": "tsc -p tsconfig.json",
     "bundle": "npm run build && node tool/bundle.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -21,7 +21,8 @@
     "typescript": "^5.4.4"
   },
   "dependencies": {
-    "@citadel/core-web": "file:../../platform/web_core"
+    "@citadel/core-web": "file:../../platform/web_core",
+    "@citadel/arm-contract": "file:../contract/js"
   },
   "files": [
     "dist/src",

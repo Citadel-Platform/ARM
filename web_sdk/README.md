@@ -43,8 +43,9 @@ report rather than sent (the Flutter SDK's rule), and a page sends at most 30.
 
 ## The contract
 
-`src/contract.ts` is `arm/tooling_core`'s fingerprint and sanitiser, held to
-`arm/contract/conformance.json` by `npm test`. The ingest computes the
+`@citadel/arm-contract` (`arm/contract/js`) is `arm/tooling_core`'s
+fingerprint and sanitiser, held to `arm/contract/conformance.json` by its own
+`npm test`, and shared with `@citadel/arm-node`. The ingest computes the
 fingerprint that is stored; this copy only recognises a repeat on the page.
 
 ## Not yet

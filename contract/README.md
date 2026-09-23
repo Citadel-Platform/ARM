@@ -7,9 +7,10 @@ Feature 1.6.1.
 - **Generated, never edited.** `arm/tooling_core` is the reference;
   `dart run tool/generate_conformance.dart` from that package writes the file,
   and its test fails if the reference and the file disagree.
-- **Reproduced by every other client.** `arm/web_sdk`'s test holds the
-  browser port to it. The PHP and Node clients (Feature 1.6.3) will do the
-  same when they exist.
+- **Reproduced by every other client.** `js/` is the one JavaScript port,
+  `@citadel/arm-contract`, used by both `arm/web_sdk` and `arm/node_sdk`; its
+  `npm test` holds it to the file. `arm/php_sdk` carries the PHP port and its
+  own test (Feature 1.6.3).
 
 The cases are picked for where languages disagree — regex word boundaries,
 whitespace classes, cutting a string through a surrogate pair, JSON escaping,

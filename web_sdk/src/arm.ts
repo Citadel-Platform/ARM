@@ -8,7 +8,7 @@ import {
   type Transport,
 } from '@citadel/core-web';
 
-import { buildArmFingerprint } from './contract.js';
+import { buildArmFingerprint } from '@citadel/arm-contract';
 
 /**
  * ARM for the browser.
@@ -20,7 +20,7 @@ import { buildArmFingerprint } from './contract.js';
  * what an error is and what is sent about it.
  *
  * The ingest computes the fingerprint (decided 23/09/26), so this sends what it
- * saw. The contract port in `contract.ts` is used only to recognise a repeat
+ * saw. The contract port (`@citadel/arm-contract`) is used only to recognise a repeat
  * on this page before sending it — the Flutter SDK's suppression, same window.
  */
 

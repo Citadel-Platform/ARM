@@ -1,0 +1,28 @@
+{
+  "name": "@citadel/arm-contract",
+  "version": "0.1.0",
+  "description": "ARM's document contract for JavaScript clients: the fingerprint, the issue id and the sanitiser, held to arm/contract/conformance.json.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/src/contract.js",
+  "types": "dist/src/contract.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/contract.d.ts",
+      "import": "./dist/src/contract.js"
+    }
+  },
+  "files": [
+    "dist/src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4.4"
+  }
+}

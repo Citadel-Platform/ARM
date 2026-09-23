@@ -23,7 +23,7 @@ interface Conformance {
 }
 
 const conformance = JSON.parse(
-  readFileSync(new URL('../../../contract/conformance.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../../conformance.json', import.meta.url), 'utf8'),
 ) as Conformance;
 
 test('the conformance file has cases to hold to', () => {
