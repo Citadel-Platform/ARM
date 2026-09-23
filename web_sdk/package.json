@@ -1,0 +1,19 @@
+{
+  "name": "@citadel/arm-web",
+  "version": "0.0.1",
+  "description": "ARM for the browser. For now, only the document contract shared with the Dart reference (Feature 1.6.1); capture waits on how evidence reaches citadel-arm (DECISIONS_NEEDED.md).",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4.4"
+  }
+}
