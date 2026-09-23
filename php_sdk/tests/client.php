@@ -63,7 +63,7 @@ function script(string $body, string $ingest, array $ini = []): array
         . "\\Citadel\\Arm\\Arm::init(['client_id' => 'client-a', 'ingest_key' => 'k', 'ingest_url' => " . var_export($ingest, true) . ", 'root' => " . var_export(sys_get_temp_dir(), true) . ", 'service' => 'cron']);\n"
         . $body);
     $args = [PHP_BINARY];
-    foreach ($ini + ['display_errors' => 'stderr', 'log_errors' => '0'] as $k => $v) {
+    foreach ($ini + ['display_errors' => 'stderr', 'log_errors' => '0', 'zend.exception_ignore_args' => '0'] as $k => $v) {
         $args[] = '-d';
         $args[] = "$k=$v";
     }
@@ -82,13 +82,14 @@ $ingest = "http://127.0.0.1:$ingestPort";
 // --------------------------------------------------------------------- CLI
 
 file_put_contents($record, '');
-$r = script("eval('namespace Deep; class Loader { function load() { throw new \\\\LogicException(\\'Config 12 is missing\\'); } }');\n(new \\Deep\\Loader())->load();\n", $ingest);
+$r = script("eval('namespace Deep; class Loader { function load() { throw new \\\\LogicException(\\'Config 12 is missing\\'); } }');\n(new \\Deep\\Loader())->load('hunter2');\n", $ingest);
 $c = received($record);
 check('cli uncaught: exit status stays 255', $r['code'] === 255, "got {$r['code']}");
 check('cli uncaught: PHP\'s own message still printed', str_contains($r['err'], 'PHP Fatal error:  Uncaught LogicException: Config 12 is missing'), $r['err']);
 check('cli uncaught: one capture arrived', count($c) === 1, (string) count($c));
 check('cli uncaught: shaped as a php capture', ($c[0]['source'] ?? '') === 'php' && ($c[0]['operation'] ?? '') === 'uncaught_exception' && ($c[0]['severity'] ?? '') === 'critical' && ($c[0]['errorType'] ?? '') === 'LogicException' && ($c[0]['feature'] ?? '') === 'cron');
 check('cli uncaught: client id and key in headers', ($c[0]['_client'] ?? '') === 'client-a' && ($c[0]['_key'] ?? '') === 'k');
+check('cli uncaught: no call arguments leave', str_contains((string) ($c[0]['stackTrace'] ?? ''), 'Deep\\Loader->load()') && !str_contains((string) ($c[0]['stackTrace'] ?? ''), 'hunter2'), (string) ($c[0]['stackTrace'] ?? ''));
 check('cli uncaught: namespace separators survive', str_contains((string) ($c[0]['stackTrace'] ?? ''), 'Deep\\Loader->load()'), (string) ($c[0]['stackTrace'] ?? ''));
 check('cli uncaught: stack starts at the throw site, relative to the root', str_contains((string) ($c[0]['stackTrace'] ?? ''), 'arm-script') && !str_contains((string) $c[0]['stackTrace'], sys_get_temp_dir() . '/'), (string) ($c[0]['stackTrace'] ?? ''));
 

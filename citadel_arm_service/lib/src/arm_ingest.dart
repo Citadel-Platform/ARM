@@ -304,10 +304,20 @@ String armFingerprintStack(ArmIngestCapture capture) {
     // reference strips a Dart or V8 `:line:column` but not PHP's `(line)`,
     // so any edit above the fault would make it a new issue — and every
     // deploy is an edit. The line goes, for grouping only.
-    return capture.stackTrace.replaceAllMapped(
-      RegExp(r'(\.(?:php|phtml|inc))\(\d+\)'),
-      (Match m) => m[1]!,
-    );
+    //
+    // A frame's call arguments go too: `getTraceAsString()` prints them where
+    // `zend.exception_ignore_args` is off, so `confirm(4412)` and
+    // `confirm(4413)` would be two issues. `arm-php` never sends them; an
+    // older or hand-written sender might.
+    return capture.stackTrace
+        .replaceAllMapped(
+          RegExp(r'(\.(?:php|phtml|inc))\(\d+\)'),
+          (Match m) => m[1]!,
+        )
+        .replaceAllMapped(
+          RegExp(r'^(#\d+ .*?(?:->|::)?[A-Za-z_\x80-\uffff][\w\x80-\uffff]*)\(.*\)$', multiLine: true),
+          (Match m) => '${m[1]}()',
+        );
   }
   if (capture.source != ArmCaptureSource.web &&
       capture.source != ArmCaptureSource.node) {

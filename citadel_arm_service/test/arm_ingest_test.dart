@@ -146,6 +146,19 @@ void main() {
       expect(elsewhere, isNot(before));
     });
 
+    test('PHP call arguments do not split a fault', () {
+      Map<String, Object?> php(String stack) =>
+          capture(extra: <String, Object?>{'source': 'php'}, stack: stack);
+      final String one = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        php("src/Booking.php(7)\n#0 src/Booking.php(7): PDO->__construct('mysql:host=db', 'app', Object(SensitiveParameterValue), Array)\n#1 public/index.php(17): App\\Booking::confirm(4412)\n#2 {main}"),
+      ], now: _now).single).fingerprint;
+      final String two = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        php('src/Booking.php(7)\n#0 src/Booking.php(7): PDO->__construct()\n#1 public/index.php(17): App\\Booking::confirm()\n#2 {main}'),
+      ], now: _now).single).fingerprint;
+      expect(one, two);
+      expect(one, isNot(contains('4412')));
+    });
+
     test('a Dart stack is fingerprinted by the reference unchanged', () {
       final ArmIngestCapture dart = parseArmIngestBatch(<Object?>[
         capture(extra: <String, Object?>{'source': 'dart'}, stack: 'TypeError: x\n#0 f (a.dart:1:1)'),

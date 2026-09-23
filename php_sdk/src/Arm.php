@@ -249,7 +249,7 @@ final class Arm
         $this->previousErrorHandler = set_error_handler(function (int $level, string $message, string $file = '', int $line = 0): bool {
             // `@` and error_reporting() are the application's decision.
             if ((error_reporting() & $level) !== 0 && ($level & (int) $this->options['capture_errors']) !== 0) {
-                $this->capture(self::levelName($level), $message, $this->relative($file) . "($line)\n" . $this->relative((new \Exception())->getTraceAsString()), [
+                $this->capture(self::levelName($level), $message, $this->relative($file) . "($line)\n" . $this->relative(self::traceWithoutArguments(array_slice(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS), 1))), [
                     'feature' => $this->options['service'] ?? 'server',
                     'operation' => 'php_error',
                     'severity' => ($level & (E_USER_ERROR | E_RECOVERABLE_ERROR)) !== 0 ? 'serious' : 'low',
@@ -459,7 +459,28 @@ final class Arm
     {
         // PHP's own trace starts at the caller of the function that threw, so
         // the throw site goes first.
-        return $this->relative($error->getFile()) . '(' . $error->getLine() . ")\n" . $this->relative($error->getTraceAsString());
+        return $this->relative($error->getFile()) . '(' . $error->getLine() . ")\n" . $this->relative(self::traceWithoutArguments($error->getTrace()));
+    }
+
+    /**
+     * PHP's trace format, `#0 file(line): Class->method()`, with the call
+     * arguments left out. `getTraceAsString()` prints them wherever
+     * `zend.exception_ignore_args` is off, and they are the values the code
+     * was handling — a customer's email, a booking id — so they would leave
+     * the server and split one fault into an issue per value.
+     *
+     * @param list<array<string, mixed>> $trace
+     */
+    private static function traceWithoutArguments(array $trace): string
+    {
+        $lines = [];
+        foreach ($trace as $i => $frame) {
+            $where = isset($frame['file']) ? $frame['file'] . '(' . ($frame['line'] ?? 0) . ')' : '[internal function]';
+            $call = ($frame['class'] ?? '') . ($frame['type'] ?? '') . ($frame['function'] ?? '');
+            $lines[] = "#$i $where: $call()";
+        }
+        $lines[] = '#' . count($trace) . ' {main}';
+        return implode("\n", $lines);
     }
 
     /** Paths under the application root, made relative: no server layout leaves, and a new deploy directory is not a new issue. */
