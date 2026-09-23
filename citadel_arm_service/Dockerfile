@@ -23,10 +23,15 @@ RUN dart pub get --offline
 # context and must be produced here — the ticket models use freezed.
 RUN dart run build_runner build --delete-conflicting-outputs
 RUN dart compile exe bin/citadel_arm_service.dart -o /app/server
+# The public ingest (23/09/26), from the same package and the same image: one
+# build, two services. Cloud Run selects it with `command = ["/app/ingest"]`,
+# under its own identity; the default entrypoint stays the evidence service.
+RUN dart compile exe bin/citadel_arm_ingest.dart -o /app/ingest
 
 FROM scratch
 COPY --from=build /runtime/ /
 COPY --from=build /app/server /app/server
+COPY --from=build /app/ingest /app/ingest
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]

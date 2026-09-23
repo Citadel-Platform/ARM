@@ -4,3 +4,6 @@ export 'src/arm_oidc_authorizer.dart';
 export 'src/arm_private_service.dart';
 export 'src/arm_project_router.dart';
 export 'src/arm_service_handler.dart';
+export 'src/arm_ingest.dart';
+export 'src/arm_ingest_firestore.dart';
+export 'src/arm_ingest_handler.dart';
