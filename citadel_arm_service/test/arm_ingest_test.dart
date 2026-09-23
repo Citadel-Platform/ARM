@@ -201,6 +201,25 @@ void main() {
     });
   });
 
+  test('environment survives the evidence JSON both ways', () {
+    // Stored all along, and dropped by the encoder until 23/09/26: found
+    // reading back the ingest's first production capture. The Console decodes
+    // with this same codec, so encoder and decoder change together.
+    final ArmIssueRecord issue = ArmIssueRecord(
+      issueId: 'issue_abc',
+      severity: 'moderate',
+      category: 'exception',
+      feature: 'f',
+      operation: 'o',
+      firstSeenAt: _now,
+      lastSeenAt: _now,
+      caseCount: 1,
+      environment: 'staging',
+    );
+    expect(decodeArmIssueRecord(encodeArmIssueRecord(issue)).environment, 'staging');
+    expect(encodeArmIssueRecord(issue.copyWith(environment: null)).containsKey('environment'), isFalse);
+  });
+
   group('handler', () {
     late Handler handler;
     late _MemoryStore store;

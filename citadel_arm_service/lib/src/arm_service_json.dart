@@ -53,6 +53,10 @@ Map<String, Object?> encodeArmIssueRecord(ArmIssueRecord value) {
     if (value.appVersion != null) 'appVersion': value.appVersion,
     if (value.buildNumber != null) 'buildNumber': value.buildNumber,
     if (value.releaseChannel != null) 'releaseChannel': value.releaseChannel,
+    // Stored by every writer and filtered on by the query, and dropped here
+    // until 23/09/26 — so the Console never saw which environment a fault came
+    // from. Found reading back the ARM ingest's first production capture.
+    if (value.environment != null) 'environment': value.environment,
     'tags': value.tags,
   };
 }
@@ -81,6 +85,7 @@ ArmIssueRecord decodeArmIssueRecordAt(Object? value, String path) {
       'appVersion',
       'buildNumber',
       'releaseChannel',
+      'environment',
       'tags',
     },
     path: path,
@@ -107,6 +112,7 @@ ArmIssueRecord decodeArmIssueRecordAt(Object? value, String path) {
       json['releaseChannel'],
       r'$.releaseChannel',
     ),
+    environment: _optionalString(json['environment'], r'$.environment'),
     tags: armNormalizedTags(json['tags'], r'$.tags'),
   );
 }
@@ -137,6 +143,10 @@ Map<String, Object?> encodeArmCaseRecord(ArmCaseRecord value) {
     if (value.appVersion != null) 'appVersion': value.appVersion,
     if (value.buildNumber != null) 'buildNumber': value.buildNumber,
     if (value.releaseChannel != null) 'releaseChannel': value.releaseChannel,
+    // Stored by every writer and filtered on by the query, and dropped here
+    // until 23/09/26 — so the Console never saw which environment a fault came
+    // from. Found reading back the ARM ingest's first production capture.
+    if (value.environment != null) 'environment': value.environment,
     if (value.operatorSeverity != null)
       'operatorSeverity': value.operatorSeverity,
     if (value.severityUpdatedBy != null)
@@ -184,6 +194,7 @@ ArmCaseRecord decodeArmCaseRecordAt(Object? value, String path) {
       'appVersion',
       'buildNumber',
       'releaseChannel',
+      'environment',
     },
     path: path,
   );
@@ -217,6 +228,7 @@ ArmCaseRecord decodeArmCaseRecordAt(Object? value, String path) {
       json['releaseChannel'],
       r'$.releaseChannel',
     ),
+    environment: _optionalString(json['environment'], r'$.environment'),
     operatorSeverity: _optionalString(
       json['operatorSeverity'],
       r'$.operatorSeverity',
