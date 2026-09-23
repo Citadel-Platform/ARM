@@ -167,6 +167,7 @@ test('Express-style: an error is captured once, a 5xx without one is captured, a
   const fivexx = captures.find((c) => c.operation === 'http_5xx')!;
   assert.equal(fivexx.message, 'GET /fails answered 502');
   assert.equal(fivexx.errorType, 'HttpError', 'the same name arm-web and arm-php use');
+  assert.equal(fivexx.errorName, undefined, 'no second name that disagrees with the type');
   assert.equal(captures.find((c) => c.operation === 'slow_request')!.errorType, 'SlowRequest');
 });
 

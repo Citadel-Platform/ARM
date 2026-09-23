@@ -22,8 +22,12 @@ const captured = Symbol.for('citadel.arm.captured');
  * whichever runtime saw it. Classes rather than a renamed `Error`, because the
  * type is read from the constructor.
  */
-class HttpError extends Error {}
-class SlowRequest extends Error {}
+class HttpError extends Error {
+  override name = 'HttpError';
+}
+class SlowRequest extends Error {
+  override name = 'SlowRequest';
+}
 
 interface NodeRequest {
   method?: string;
