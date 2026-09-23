@@ -1,0 +1,22 @@
+{
+    "name": "citadel/arm-php",
+    "description": "ARM for PHP: uncaught exceptions, fatal errors, warnings, 5xx and slow requests, sent to Citadel's shared ARM ingest.",
+    "type": "library",
+    "license": "proprietary",
+    "version": "0.1.0",
+    "require": {
+        "php": ">=8.1",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "suggest": {
+        "ext-curl": "Sends with a hard timeout; without it, PHP's HTTP stream wrapper is used.",
+        "psr/log": "For ArmLogger, the PSR-3 logger.",
+        "psr/http-server-middleware": "For ArmMiddleware, the PSR-15 middleware."
+    },
+    "autoload": {
+        "psr-4": {
+            "Citadel\\Arm\\": "src/"
+        }
+    }
+}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +80,17 @@ test('a caught error is sent as a node capture, with the key in headers', async 
   const request = (capture.context as Record<string, unknown>).request as Record<string, unknown>;
   assert.deepEqual(request, { method: 'GET', route: '/orders/:id', path: '/orders/9817', status: 500 });
   assert.doesNotMatch(JSON.stringify(body), /secret/);
+});
+
+test('a root reached through a symlink matches frames named by the resolved path', async () => {
+  const { mkdtempSync, mkdirSync, symlinkSync } = await import('node:fs');
+  const base = mkdtempSync(join(tmpdir(), 'arm-root-'));
+  mkdirSync(join(base, 'releases', 'r42'), { recursive: true });
+  symlinkSync(join(base, 'releases', 'r42'), join(base, 'current'));
+  const arm = client({ root: join(base, 'current') });
+  const resolved = realpathSync(join(base, 'releases', 'r42'));
+  assert.equal(arm.relativeStack(`at f (${resolved}/src/a.js:1:2)`), 'at f (src/a.js:1:2)');
+  await arm.close();
 });
 
 test('a repeat inside the minute is counted and reported with the next one', async () => {

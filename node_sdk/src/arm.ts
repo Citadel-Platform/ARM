@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
 
 import { buildArmFingerprint, sanitizeArmMap } from '@citadel/arm-contract';
@@ -102,7 +103,8 @@ export class ArmNode {
   readonly options: ArmNodeOptions;
   /** One per process: a server has no visitor session, and the ingest wants an id. */
   readonly processId = `proc-${randomUUID()}`;
-  private readonly root: string;
+  /** The root as given and as resolved, longest first. */
+  private readonly roots: string[];
   private readonly queue: ArmCapture[] = [];
   private readonly seen = new Map<string, { at: number; suppressed: number }>();
   private minuteStart = 0;
@@ -115,7 +117,7 @@ export class ArmNode {
 
   constructor(options: ArmNodeOptions) {
     this.options = options;
-    this.root = normalizeRoot(options.root ?? safeCwd());
+    this.roots = rootsOf(options.root ?? safeCwd());
     this.timer = setInterval(() => void this.flush(), flushIntervalMs);
     this.timer.unref?.();
     if (options.captureUncaught !== false && options.installProcessHandlers !== false) {
@@ -164,8 +166,9 @@ export class ArmNode {
 
   /** The stack as it will be sent: paths under the root made relative. Exposed for tests. */
   relativeStack(stack: string): string {
-    if (this.root === '') return stack;
-    return stack.split(this.root).join('').replace(/file:\/\/(?=[^/])/g, '');
+    let out = stack;
+    for (const root of this.roots) out = out.split(root).join('');
+    return this.roots.length === 0 ? out : out.replace(/file:\/\/(?=[^/])/g, '');
   }
 
   // ---------------------------------------------------------------- capture
@@ -351,9 +354,26 @@ function cleanRequest(request: RequestContext): Record<string, unknown> {
   return out;
 }
 
-function normalizeRoot(root: string): string {
-  const trimmed = root.replace(/[\\/]+$/, '');
-  return trimmed === '' ? '' : `${trimmed}/`;
+/**
+ * Both spellings of the root: Node names modules by their resolved path, so a
+ * root reached through a symlink — a deploy's `current` directory — would
+ * otherwise never match a frame.
+ */
+function rootsOf(root: string): string[] {
+  const candidates = new Set<string>();
+  for (const candidate of [root, safeRealpath(root)]) {
+    const trimmed = candidate.replace(/[\\/]+$/, '');
+    if (trimmed !== '') candidates.add(`${trimmed}/`);
+  }
+  return [...candidates].sort((a, b) => b.length - a.length);
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return path === '' ? '' : realpathSync(path);
+  } catch {
+    return '';
+  }
 }
 
 function safeCwd(): string {
