@@ -161,7 +161,12 @@ List<Map<String, Object?>> _fromLogs(Map<String, Object?> export) {
           ],
           resource: resource,
           attributes: attributes,
-          operation: _string(attributes['code.function']) ?? _string(record['severityText'])?.toLowerCase() ?? 'log',
+          // `code.function.name` is the current semantic convention (the
+          // Python SDK writes it); `code.function` the older one.
+          operation: _string(attributes['code.function.name']) ??
+              _string(attributes['code.function']) ??
+              _string(record['severityText'])?.toLowerCase() ??
+              'log',
           errorType: _string(attributes['exception.type']) ?? 'LogError',
           message: _string(attributes['exception.message']) ?? bodyText,
           stack: _string(attributes['exception.stacktrace']) ?? '',
