@@ -319,6 +319,18 @@ String armFingerprintStack(ArmIngestCapture capture) {
           (Match m) => '${m[1]}()',
         );
   }
+  if (capture.source == ArmCaptureSource.otlp) {
+    // Whatever language exported it. Line numbers go in each runtime's own
+    // spelling — Python's `line 42,`, Java's `(Order.java:42)`, Go's
+    // `order.go:42` — for the reason PHP's do above.
+    return capture.stackTrace
+        .replaceAllMapped(RegExp(r', line \d+'), (_) => '')
+        .replaceAllMapped(
+          RegExp(r'(\.(?:java|kt|scala|cs|go|py|rb|php|js|ts|mjs|cjs)):\d+(?::\d+)?'),
+          (Match m) => m[1]!,
+        )
+        .replaceAllMapped(RegExp(r'\+0x[0-9a-f]+'), (_) => '');
+  }
   if (capture.source != ArmCaptureSource.web &&
       capture.source != ArmCaptureSource.node) {
     return capture.stackTrace;
@@ -541,6 +553,41 @@ final class ArmIngestService {
       }
     }
     return outcomes;
+  }
+
+  /// Accepts captures already converted from an OpenTelemetry export
+  /// (`arm_otlp.dart`), in batches of the size [accept] takes. An export with
+  /// nothing wrong in it still has its key checked, so a misconfigured
+  /// exporter hears 401 on its first quiet batch rather than on its first
+  /// error.
+  Future<int> acceptConverted({
+    required String? clientId,
+    required String? key,
+    required List<Map<String, Object?>> captures,
+  }) async {
+    if (captures.isEmpty) {
+      final String client = clientId?.trim() ?? '';
+      final String presented = key?.trim() ?? '';
+      if (!RegExp(r'^[a-z0-9][a-z0-9-]{1,62}$').hasMatch(client) ||
+          presented.isEmpty ||
+          !await _keys.verify(client, presented)) {
+        throw const ArmIngestRejection(
+          401,
+          'unauthenticated',
+          'The client ID and ARM ingest key do not match a client.',
+        );
+      }
+      return 0;
+    }
+    var accepted = 0;
+    for (var i = 0; i < captures.length; i += armIngestMaxBatch) {
+      final List<Map<String, Object?>> chunk = captures.sublist(
+        i,
+        i + armIngestMaxBatch > captures.length ? captures.length : i + armIngestMaxBatch,
+      );
+      accepted += (await accept(clientId: clientId, key: key, body: chunk)).length;
+    }
+    return accepted;
   }
 
   ArmIngestRejection _rejectionFor(ArmServiceException error) =>

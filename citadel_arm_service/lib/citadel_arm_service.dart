@@ -7,3 +7,4 @@ export 'src/arm_service_handler.dart';
 export 'src/arm_ingest.dart';
 export 'src/arm_ingest_firestore.dart';
 export 'src/arm_ingest_handler.dart';
+export 'src/arm_otlp.dart';

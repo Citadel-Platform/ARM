@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:shelf/shelf.dart';
 
 import 'arm_ingest.dart';
+import 'arm_otlp.dart';
 
 /// What the ingest serves at `/sdk/v1/`, built into the image by
 /// `cloudbuild.arm.yaml`: the browser scripts `citadel-core.js` and `arm.js`,
@@ -138,6 +139,18 @@ Future<Response> _route(
     );
   }
 
+  if (request.method == 'POST' &&
+      path.length == 2 &&
+      path[0] == 'v1' &&
+      (path[1] == 'traces' || path[1] == 'logs')) {
+    return _otlp(
+      request,
+      service,
+      path[1] == 'traces' ? ArmOtlpSignal.traces : ArmOtlpSignal.logs,
+      requestId,
+    );
+  }
+
   if (!(request.method == 'POST' &&
       path.length == 2 &&
       path[0] == 'v1' &&
@@ -196,6 +209,53 @@ Future<Response> _route(
   }
 }
 
+/// An OpenTelemetry export (Feature 1.6.4). OTLP/HTTP's own conventions:
+/// protobuf or JSON by `Content-Type`, gzip by `Content-Encoding`, the key in
+/// headers an exporter is configured with (`x-citadel-client`, `x-arm-key`),
+/// and an empty success answered in the request's own encoding.
+Future<Response> _otlp(
+  Request request,
+  ArmIngestService service,
+  ArmOtlpSignal signal,
+  String requestId,
+) async {
+  final bool protobuf =
+      (request.headers['content-type'] ?? '').toLowerCase().contains('protobuf');
+  try {
+    final List<int> raw = <int>[];
+    await for (final List<int> chunk in request.read()) {
+      raw.addAll(chunk);
+      if (raw.length > armOtlpMaxDecodedBytes) {
+        throw const ArmIngestRejection(413, 'payloadTooLarge', 'The export is too large.');
+      }
+    }
+    List<int> body = raw;
+    if ((request.headers['content-encoding'] ?? '').toLowerCase().contains('gzip')) {
+      try {
+        body = gzip.decode(raw);
+      } on FormatException {
+        throw const ArmIngestRejection(400, 'invalidArgument', 'The body is not valid gzip.');
+      }
+      if (body.length > armOtlpMaxDecodedBytes) {
+        throw const ArmIngestRejection(413, 'payloadTooLarge', 'The export is too large.');
+      }
+    }
+    await service.acceptConverted(
+      clientId: request.headers['x-citadel-client'] ?? request.url.queryParameters['client'],
+      key: request.headers['x-arm-key'] ?? request.url.queryParameters['key'],
+      captures: armCapturesFromOtlp(signal: signal, body: body, protobuf: protobuf),
+    );
+    return protobuf
+        ? Response.ok(const <int>[], headers: const <String, String>{'content-type': 'application/x-protobuf'})
+        : _json(200, const <String, Object?>{});
+  } on ArmIngestRejection catch (rejection) {
+    return _error(rejection.status, rejection.code, rejection.message, requestId);
+  } on Object catch (error, stack) {
+    stderr.writeln('ARM OTLP ingest $requestId failed: $error\n$stack');
+    return _error(500, 'internal', 'The ARM ingest failed.', requestId);
+  }
+}
+
 Response _json(int status, Map<String, Object?> body) => Response(
   status,
   body: jsonEncode(body),
@@ -216,6 +276,6 @@ const Map<String, String> _corsHeaders = <String, String>{
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
   'access-control-allow-headers':
-      'content-type, x-citadel-client, x-arm-key, x-request-id',
+      'content-type, content-encoding, x-citadel-client, x-arm-key, x-request-id',
   'access-control-max-age': '3600',
 };
