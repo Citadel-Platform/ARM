@@ -108,7 +108,8 @@ void main() {
       'message': 'Card declined for invoice $line',
       'sessionId': 's',
       'stackTrace': 'Traceback (most recent call last):\n  File "billing/charge.py", line $line, in charge\n'
-          '    at Order.pay(Order.java:$line)\n    main.go:$line +0x1f',
+          '    at Order.pay(Order.java:$line)\n    main.go:$line +0x1f\n'
+          'billing.gateway.CardDeclined: Card declined for invoice $line',
     };
     final List<ArmIngestCapture> parsed = parseArmIngestBatch(<Object?>[capture(40), capture(47)], now: DateTime.utc(2026, 9, 23));
     expect(armCaptureRequestFor(parsed[0]).fingerprint, armCaptureRequestFor(parsed[1]).fingerprint);

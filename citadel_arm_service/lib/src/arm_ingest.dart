@@ -323,7 +323,17 @@ String armFingerprintStack(ArmIngestCapture capture) {
     // Whatever language exported it. Line numbers go in each runtime's own
     // spelling — Python's `line 42,`, Java's `(Order.java:42)`, Go's
     // `order.go:42` — for the reason PHP's do above.
+    //
+    // And any line that repeats the message: a Python traceback ends with
+    // `CardDeclined: Card declined for invoice 881`, and Java's first line is
+    // `Exception: <message>` — the message normalised for grouping, this copy
+    // of it not, so every invoice number would be its own issue. Seen in
+    // production, 23/09/26.
+    final String message = capture.message.trim();
     return capture.stackTrace
+        .split('\n')
+        .where((String line) => message.length < 4 || !line.contains(message))
+        .join('\n')
         .replaceAllMapped(RegExp(r', line \d+'), (_) => '')
         .replaceAllMapped(
           RegExp(r'(\.(?:java|kt|scala|cs|go|py|rb|php|js|ts|mjs|cjs)):\d+(?::\d+)?'),
