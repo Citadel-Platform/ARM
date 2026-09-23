@@ -166,6 +166,8 @@ test('Express-style: an error is captured once, a 5xx without one is captured, a
   assert.deepEqual((thrown.context as Record<string, unknown>).request, { method: 'GET', route: '/throws/:id', path: '/throws/7' });
   const fivexx = captures.find((c) => c.operation === 'http_5xx')!;
   assert.equal(fivexx.message, 'GET /fails answered 502');
+  assert.equal(fivexx.errorType, 'HttpError', 'the same name arm-web and arm-php use');
+  assert.equal(captures.find((c) => c.operation === 'slow_request')!.errorType, 'SlowRequest');
 });
 
 // ------------------------------------------------------------ real processes

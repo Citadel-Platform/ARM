@@ -16,6 +16,15 @@ export interface RequestHookOptions {
 
 const captured = Symbol.for('citadel.arm.captured');
 
+/**
+ * The error types a request's outcome is reported under — the same names
+ * `arm-web` and `arm-php` use, so a 5xx is one kind of thing in the Console
+ * whichever runtime saw it. Classes rather than a renamed `Error`, because the
+ * type is read from the constructor.
+ */
+class HttpError extends Error {}
+class SlowRequest extends Error {}
+
 interface NodeRequest {
   method?: string;
   url?: string;
@@ -47,8 +56,7 @@ function reportResponse(
 ): void {
   const where = request.route ?? request.path ?? '';
   if ((request.status ?? 0) >= 500 && !alreadyCaptured) {
-    const error = new Error(`${request.method ?? ''} ${where} answered ${request.status}`.trim());
-    error.name = 'HttpError';
+    const error = new HttpError(`${request.method ?? ''} ${where} answered ${request.status}`.trim());
     error.stack = '';
     arm.capture(error, {
       feature: arm.options.service ?? 'server',
@@ -61,8 +69,7 @@ function reportResponse(
     });
   }
   if (slowMs > 0 && (request.durationMs ?? 0) > slowMs) {
-    const error = new Error(`${request.method ?? ''} ${where} took longer than ${slowMs} ms`.trim());
-    error.name = 'SlowRequest';
+    const error = new SlowRequest(`${request.method ?? ''} ${where} took longer than ${slowMs} ms`.trim());
     error.stack = '';
     arm.capture(error, {
       feature: arm.options.service ?? 'server',
