@@ -6,8 +6,11 @@ import 'package:shelf/shelf.dart';
 
 import 'arm_ingest.dart';
 
-/// The browser scripts the ingest serves at `/sdk/v1/`: `citadel-core.js` and
-/// `arm.js`, bundled into the image by `cloudbuild.arm.yaml`.
+/// What the ingest serves at `/sdk/v1/`, built into the image by
+/// `cloudbuild.arm.yaml`: the browser scripts `citadel-core.js` and `arm.js`,
+/// and the server packages `arm-node.tgz` (`npm install <url>`) and
+/// `arm-php.zip` (unzipped beside a PHP app). One Citadel host for everything
+/// ARM, and the download is always the build that is deployed.
 ///
 /// From the ingest's own origin so a client's Content-Security-Policy names
 /// one Citadel host for ARM — the one captures already go to. Loaded into
@@ -16,7 +19,19 @@ import 'arm_ingest.dart';
 final class ArmSdkAssets {
   ArmSdkAssets._(this._files);
 
-  static const List<String> names = <String>['citadel-core.js', 'arm.js'];
+  static const List<String> names = <String>[
+    'citadel-core.js',
+    'arm.js',
+    'arm-node.tgz',
+    'arm-php.zip',
+  ];
+
+  /// The content type each name is served as.
+  static String contentTypeOf(String name) => name.endsWith('.tgz')
+      ? 'application/gzip'
+      : name.endsWith('.zip')
+      ? 'application/zip'
+      : 'application/javascript; charset=utf-8';
 
   final Map<String, ({List<int> bytes, String etag})> _files;
 
@@ -96,14 +111,17 @@ Future<Response> _route(
         404,
         'notFound',
         ArmSdkAssets.names.contains(path[2])
-            ? 'This ARM build does not carry the web SDK. It is bundled by '
-                  'cloudbuild.arm.yaml; an image built another way has none.'
-            : 'No web SDK script is named ${path[2]}.',
+            ? 'This ARM build does not carry ${path[2]}. The SDKs are built '
+                  'into the image by cloudbuild.arm.yaml; an image built another '
+                  'way has none.'
+            : 'No SDK file is named ${path[2]}.',
         requestId,
       );
     }
     final Map<String, String> headers = <String, String>{
-      'content-type': 'application/javascript; charset=utf-8',
+      'content-type': ArmSdkAssets.contentTypeOf(path[2]),
+      if (!path[2].endsWith('.js'))
+        'content-disposition': 'attachment; filename="${path[2]}"',
       // An hour, then revalidated: every page view of every client site asks,
       // and a fix should not take days to reach them.
       'cache-control': 'public, max-age=3600',

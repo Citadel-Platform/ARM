@@ -299,6 +299,16 @@ ArmBreadcrumb? _breadcrumb(Object? raw) {
 ///   so a fault survives a release as the same issue — which is what release
 ///   health needs to say whether a release fixed it.
 String armFingerprintStack(ArmIngestCapture capture) {
+  if (capture.source == ArmCaptureSource.php) {
+    // PHP names a frame `src/Booking.php(118): App\Booking->confirm()`. The
+    // reference strips a Dart or V8 `:line:column` but not PHP's `(line)`,
+    // so any edit above the fault would make it a new issue — and every
+    // deploy is an edit. The line goes, for grouping only.
+    return capture.stackTrace.replaceAllMapped(
+      RegExp(r'(\.(?:php|phtml|inc))\(\d+\)'),
+      (Match m) => m[1]!,
+    );
+  }
   if (capture.source != ArmCaptureSource.web &&
       capture.source != ArmCaptureSource.node) {
     return capture.stackTrace;

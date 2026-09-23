@@ -130,6 +130,22 @@ void main() {
       expect(a.fingerprint, isNot(contains('secret')));
     });
 
+    test('a PHP fault survives a line moving, and stays apart from another file', () {
+      Map<String, Object?> php(String stack) =>
+          capture(extra: <String, Object?>{'source': 'php'}, stack: stack);
+      final String before = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        php('src/Db.php(40)\n#0 src/Booking.php(118): App\\Db::connect()\n#1 {main}'),
+      ], now: _now).single).fingerprint;
+      final String after = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        php('src/Db.php(44)\n#0 src/Booking.php(131): App\\Db::connect()\n#1 {main}'),
+      ], now: _now).single).fingerprint;
+      final String elsewhere = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        php('src/Mail.php(40)\n#0 src/Booking.php(118): App\\Mail::send()\n#1 {main}'),
+      ], now: _now).single).fingerprint;
+      expect(after, before);
+      expect(elsewhere, isNot(before));
+    });
+
     test('a Dart stack is fingerprinted by the reference unchanged', () {
       final ArmIngestCapture dart = parseArmIngestBatch(<Object?>[
         capture(extra: <String, Object?>{'source': 'dart'}, stack: 'TypeError: x\n#0 f (a.dart:1:1)'),
@@ -299,7 +315,32 @@ void main() {
       expect(again.statusCode, 304);
       final Response missing = await handler(Request('GET', Uri.parse('http://x/sdk/v1/arm.js')));
       expect(missing.statusCode, 404);
-      expect(await missing.readAsString(), contains('does not carry the web SDK'));
+      expect(await missing.readAsString(), contains('does not carry arm.js'));
+    });
+
+    test('the server packages are served as downloads', () async {
+      final Handler withAssets = createArmIngestHandler(
+        service: ArmIngestService(
+          keys: const _Keys(<String, String>{}),
+          router: const _Router(),
+          store: store,
+          rateLimiter: ArmIngestRateLimiter(capturesPerMinute: 1),
+        ),
+        sdkAssets: ArmSdkAssets.fromMap(<String, String>{
+          'arm-node.tgz': 'tgz',
+          'arm-php.zip': 'zip',
+        }),
+      );
+      final Response node = await withAssets(Request('GET', Uri.parse('http://x/sdk/v1/arm-node.tgz')));
+      expect(node.statusCode, 200);
+      expect(node.headers['content-type'], 'application/gzip');
+      expect(node.headers['content-disposition'], 'attachment; filename="arm-node.tgz"');
+      final Response php = await withAssets(Request('GET', Uri.parse('http://x/sdk/v1/arm-php.zip')));
+      expect(php.headers['content-type'], 'application/zip');
+      final Response script = await withAssets(Request('GET', Uri.parse('http://x/sdk/v1/arm.js')));
+      expect(script.statusCode, 404, reason: 'not in this map');
+      final Response other = await withAssets(Request('GET', Uri.parse('http://x/sdk/v1/other.zip')));
+      expect(await other.readAsString(), contains('No SDK file is named other.zip'));
     });
 
     test('a failure is opaque and carries a request id', () async {
