@@ -119,6 +119,17 @@ void main() {
       expect(a.stackTrace, contains('page-3f9a1c.js'));
     });
 
+    test('a query string in a frame does not split one fault', () {
+      final a = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        capture(stack: 'TypeError: x\n    at onclick (https://x.example/?a=1&t=secret:8:60)'),
+      ], now: _now).single);
+      final b = armCaptureRequestFor(parseArmIngestBatch(<Object?>[
+        capture(stack: 'TypeError: x\n    at onclick (https://x.example/?a=2:8:60)'),
+      ], now: _now).single);
+      expect(a.fingerprint, b.fingerprint);
+      expect(a.fingerprint, isNot(contains('secret')));
+    });
+
     test('a Dart stack is fingerprinted by the reference unchanged', () {
       final ArmIngestCapture dart = parseArmIngestBatch(<Object?>[
         capture(extra: <String, Object?>{'source': 'dart'}, stack: 'TypeError: x\n#0 f (a.dart:1:1)'),

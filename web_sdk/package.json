@@ -1,19 +1,31 @@
 {
   "name": "@citadel/arm-web",
-  "version": "0.0.1",
-  "description": "ARM for the browser. For now, only the document contract shared with the Dart reference (Feature 1.6.1); capture waits on how evidence reaches citadel-arm (DECISIONS_NEEDED.md).",
+  "version": "0.1.0",
+  "description": "ARM for the browser, on the Citadel Core SDK: uncaught errors, unhandled rejections, failed requests, resource and CSP failures, sent to the shared ARM ingest with Core's breadcrumbs and session.",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "scripts": {
+    "prebuild": "npm --prefix ../../platform/web_core run build",
     "build": "tsc -p tsconfig.json",
+    "bundle": "npm run build && node tool/bundle.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/test/*.test.js"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.5",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.4.4"
-  }
+  },
+  "dependencies": {
+    "@citadel/core-web": "file:../../platform/web_core"
+  },
+  "files": [
+    "dist/src",
+    "dist/browser",
+    "README.md"
+  ]
 }

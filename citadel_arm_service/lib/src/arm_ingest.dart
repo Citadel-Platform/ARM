@@ -293,6 +293,7 @@ ArmBreadcrumb? _breadcrumb(Object? raw) {
 /// - V8 opens a stack with `TypeError: <message>`. The message is normalised
 ///   (numbers become `<n>`) but this copy of it is not, so "order 9817" and
 ///   "order 1042" would be two issues. The line is dropped.
+/// - A frame's URL can carry the page's query string; it is dropped.
 /// - Bundlers put a content hash in chunk names (`page-3f9a1c.js`,
 ///   `main.8e2a1b4c.js`), which changes on every deploy. The hash is dropped,
 ///   so a fault survives a release as the same issue — which is what release
@@ -314,6 +315,14 @@ String armFingerprintStack(ArmIngestCapture capture) {
   return lines
       .map(
         (String line) => line
+            // A frame's URL with its query: the page an inline script ran
+            // on, carrying whatever that visitor's address carried. `arm-web`
+            // strips it before sending; this keeps an older or hand-written
+            // sender from splitting one fault by query string.
+            .replaceAllMapped(
+              RegExp(r'(\b(?:https?|file)://[^\s?#()]+)[?#][^\s()]*?(:\d+:\d+|:\d+)?(?=[\s)]|$)'),
+              (Match m) => '${m[1]}${m[2] ?? ''}',
+            )
             .replaceAllMapped(
               RegExp(r'([-.])[0-9a-f]{6,}(\.m?js)', caseSensitive: false),
               (Match m) => m[2]!,

@@ -1,10 +1,53 @@
 # @citadel/arm-web
 
-ARM for the browser — Feature 1.6.2, on the Citadel Core SDK.
+ARM for the browser — Feature 1.6.2, on the Citadel Core SDK. Sends to
+Citadel's one shared ARM ingest, which groups what it receives and writes it
+into the client's own `citadel-arm` (decided 23/09/26).
 
-**Only the document contract exists so far:** the fingerprint, issue id and
-sanitiser, ported from `arm/tooling_core` and held to
-`arm/contract/conformance.json` (`npm test`). Error capture is not built,
-because how browser evidence reaches the client's `citadel-arm` database is an
-open decision: the ARM evidence service is private and has no ingest route or
-ingest credential. See `DECISIONS_NEEDED.md`.
+## Install
+
+Core first, then ARM — both served by the ARM ingest:
+
+```html
+<script src="https://ARM_INGEST/sdk/v1/citadel-core.js"></script>
+<script src="https://ARM_INGEST/sdk/v1/arm.js"
+        data-client-id="CLIENT_ID" data-ingest-key="ARM_INGEST_KEY"
+        data-release="2.3.0" data-environment="production"></script>
+```
+
+The three values come from Console → ARM → Set up ARM → *Issue the ingest key*.
+A page that also runs Conduit loads `citadel-core.js` once.
+
+npm: `init({ clientId, ingestKey, ingestUrl })`, then
+`arm.captureException(error, { feature, operation, severity })`.
+
+## What it captures
+
+| Operation | What | Severity |
+| --- | --- | --- |
+| `window_error` | an uncaught error | serious |
+| `unhandled_rejection` | a promise nobody caught | serious |
+| `http_error` | 5xx, or a request that never completed, to a watched host | moderate / low |
+| `resource_load` | an image, script or stylesheet that failed to load | low |
+| `csp_violation` | the site's Content-Security-Policy blocked something | low |
+| (yours) | `captureException` | low unless you say |
+
+Every capture carries Core's session id and breadcrumbs, the release and
+environment, and the page address without its query string. **URLs inside a
+stack or message lose their query too** — an inline script's frame names the
+page it ran on, and a reset token was seen reaching the database that way
+before this was added.
+
+A repeat of one fault within a minute is counted and carried on the next
+report rather than sent (the Flutter SDK's rule), and a page sends at most 30.
+
+## The contract
+
+`src/contract.ts` is `arm/tooling_core`'s fingerprint and sanitiser, held to
+`arm/contract/conformance.json` by `npm test`. The ingest computes the
+fingerprint that is stored; this copy only recognises a repeat on the page.
+
+## Not yet
+
+No source-map symbolication; no release-health session counts (Feature 1.6.2);
+not deployed. See `citadel_docs/operator/10-known-limits.md`.
