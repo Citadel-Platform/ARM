@@ -147,6 +147,7 @@ Map<String, Object?> encodeArmCaseRecord(ArmCaseRecord value) {
     // until 23/09/26 — so the Console never saw which environment a fault came
     // from. Found reading back the ARM ingest's first production capture.
     if (value.environment != null) 'environment': value.environment,
+    if (value.source != null) 'source': value.source,
     if (value.operatorSeverity != null)
       'operatorSeverity': value.operatorSeverity,
     if (value.severityUpdatedBy != null)
@@ -195,6 +196,7 @@ ArmCaseRecord decodeArmCaseRecordAt(Object? value, String path) {
       'buildNumber',
       'releaseChannel',
       'environment',
+      'source',
     },
     path: path,
   );
@@ -229,6 +231,7 @@ ArmCaseRecord decodeArmCaseRecordAt(Object? value, String path) {
       r'$.releaseChannel',
     ),
     environment: _optionalString(json['environment'], r'$.environment'),
+    source: _optionalString(json['source'], r'$.source'),
     operatorSeverity: _optionalString(
       json['operatorSeverity'],
       r'$.operatorSeverity',

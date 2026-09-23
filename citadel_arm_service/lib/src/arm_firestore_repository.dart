@@ -704,6 +704,7 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       buildNumber: _optionalText(fields['buildNumber']),
       releaseChannel: _optionalText(fields['releaseChannel']),
       environment: _optionalText(fields['environment']),
+      source: _optionalText(fields['source']),
       operatorSeverity: _optionalText(fields['operatorSeverity']),
       severityUpdatedBy: _optionalText(fields['severityUpdatedBy']),
       severityUpdatedAt: _timestamp(fields['severityUpdatedAt']),

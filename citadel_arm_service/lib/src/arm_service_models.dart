@@ -147,6 +147,10 @@ abstract class ArmCaseRecord with _$ArmCaseRecord {
     /// Which of the client's environments this occurrence came from. See
     /// [ArmIssueRecord.environment]; null means it was not recorded.
     String? environment,
+
+    /// The runtime that sent it through the ARM ingest — `web`, `node`,
+    /// `php`, `otlp`. Null for evidence a Flutter app wrote directly.
+    String? source,
     String? appVersion,
     String? buildNumber,
     String? releaseChannel,

@@ -1,6 +1,7 @@
 @Tags(<String>['emulator'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:citadel_arm_service/citadel_arm_service.dart';
@@ -95,6 +96,13 @@ void main() {
     expect(cases.first.breadcrumbs.single['category'], 'click');
     expect(cases.first.context['route'], '/checkout');
     expect(cases.first.stackTrace, contains('app-3f9a1c.js'), reason: 'the stack as sent');
+    // Which runtime sent it survives the store and the wire, so the Console
+    // can say so.
+    expect(cases.first.source, 'web');
+    expect(
+      decodeArmCaseRecord(jsonDecode(jsonEncode(encodeArmCaseRecord(cases.first)))).source,
+      'web',
+    );
   });
 
   test('a redelivery records nothing new, triage survives, and a late capture '
