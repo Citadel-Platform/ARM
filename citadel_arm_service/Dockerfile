@@ -27,11 +27,16 @@ RUN dart compile exe bin/citadel_arm_service.dart -o /app/server
 # build, two services. Cloud Run selects it with `command = ["/app/ingest"]`,
 # under its own identity; the default entrypoint stays the evidence service.
 RUN dart compile exe bin/citadel_arm_ingest.dart -o /app/ingest
+# The browser scripts the ingest serves, placed in assets/sdk/v1 by
+# `citadel_core/cloudbuild.arm.yaml`. Created regardless, so an image built
+# without that step still builds and says at start that it serves none.
+RUN mkdir -p /app/citadel_arm_service/assets/sdk/v1
 
 FROM scratch
 COPY --from=build /runtime/ /
 COPY --from=build /app/server /app/server
 COPY --from=build /app/ingest /app/ingest
+COPY --from=build /app/citadel_arm_service/assets/sdk/v1/ /app/sdk/
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/app/server"]

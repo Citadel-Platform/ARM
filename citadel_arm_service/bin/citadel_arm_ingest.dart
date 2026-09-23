@@ -39,9 +39,17 @@ Future<void> main() async {
     rateLimiter: ArmIngestRateLimiter(capturesPerMinute: perMinute),
   );
 
+  final ArmSdkAssets sdkAssets = ArmSdkAssets.load(
+    Directory(Platform.environment['CITADEL_ARM_SDK_DIR']?.trim() ?? '/app/sdk'),
+  );
+  stdout.writeln(
+    sdkAssets.isEmpty
+        ? 'No web SDK scripts in this image; /sdk/v1/* will answer 404.'
+        : 'Serving web SDK scripts: ${sdkAssets.loaded.join(', ')}.',
+  );
   final Handler handler = const Pipeline()
       .addMiddleware(logRequests())
-      .addHandler(createArmIngestHandler(service: service));
+      .addHandler(createArmIngestHandler(service: service, sdkAssets: sdkAssets));
   final int port = int.tryParse(Platform.environment['PORT'] ?? '') ?? 8080;
   final HttpServer server = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
   ProcessSignal.sigterm.watch().listen((_) async {

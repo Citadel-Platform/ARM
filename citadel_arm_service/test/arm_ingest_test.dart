@@ -258,6 +258,31 @@ void main() {
       expect(store.records, hasLength(1));
     });
 
+    test('the browser scripts are served, cached and revalidated', () async {
+      final Handler withAssets = createArmIngestHandler(
+        service: ArmIngestService(
+          keys: const _Keys(<String, String>{}),
+          router: const _Router(),
+          store: store,
+          rateLimiter: ArmIngestRateLimiter(capturesPerMinute: 1),
+        ),
+        sdkAssets: ArmSdkAssets.fromMap(<String, String>{'arm.js': 'window.x=1;'}),
+      );
+      final Response ok = await withAssets(Request('GET', Uri.parse('http://x/sdk/v1/arm.js')));
+      expect(ok.statusCode, 200);
+      expect(await ok.readAsString(), 'window.x=1;');
+      expect(ok.headers['access-control-allow-origin'], '*');
+      final Response again = await withAssets(Request(
+        'GET',
+        Uri.parse('http://x/sdk/v1/arm.js'),
+        headers: <String, String>{'if-none-match': ok.headers['etag']!},
+      ));
+      expect(again.statusCode, 304);
+      final Response missing = await handler(Request('GET', Uri.parse('http://x/sdk/v1/arm.js')));
+      expect(missing.statusCode, 404);
+      expect(await missing.readAsString(), contains('does not carry the web SDK'));
+    });
+
     test('a failure is opaque and carries a request id', () async {
       final Response response = await handler(
         Request('POST', Uri.parse('http://x/v1/captures'), body: 'not json'),

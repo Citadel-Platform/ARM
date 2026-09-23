@@ -4,3 +4,5 @@ lib/src/*.freezed.dart
 
 # Written by the Firestore emulator when the emulator-tagged tests run.
 firestore-debug.log
+# Bundled at build time from platform/web_core and arm/web_sdk; never committed.
+assets/sdk/
