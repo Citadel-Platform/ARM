@@ -105,6 +105,31 @@ void main() {
     );
   });
 
+  test('a ticket the ingest opens is one the Helpdesk reads', skip: skip, () async {
+    final String requestId = 'req-${now.microsecondsSinceEpoch}';
+    final opened = await ingest.openTicket(clientId: client, key: 'k', body: <String, Object?>{
+      'requestId': requestId,
+      'title': 'Cannot pay $client',
+      'description': 'The button spins.',
+      'contact': 'amy@example.sg',
+      'caseId': 'ARM-20260923-ABCDEF12',
+    });
+    final again = await ingest.openTicket(clientId: client, key: 'k', body: <String, Object?>{
+      'requestId': requestId,
+      'title': 'A different title the second time',
+      'description': 'x',
+    });
+    expect(again.duplicate, isTrue, reason: 'written only when no ticket has the id');
+    final tickets = (await evidence.listTickets(
+      projectId: client,
+      query: const ArmTicketQuery(pageSize: 100),
+    )).tickets.where((t) => t.ticketId == opened.ticketId).toList();
+    expect(tickets, hasLength(1));
+    expect(tickets.single.title, 'Cannot pay $client', reason: 'the redelivery did not overwrite it');
+    expect(tickets.single.reporterContact, 'amy@example.sg');
+    expect(tickets.single.caseIds, <String>['ARM-20260923-ABCDEF12']);
+  });
+
   test('a redelivery records nothing new, triage survives, and a late capture '
       'does not move the issue backwards', skip: skip, () async {
     final String issueId = (await ingest.accept(clientId: client, key: 'k', body: <Object?>[

@@ -5,7 +5,13 @@ import 'package:crypto/crypto.dart';
 
 import 'arm_private_service.dart';
 import 'arm_project_router.dart';
-import 'arm_service_models.dart' show ArmServiceErrorCode;
+import 'arm_service_models.dart'
+    show
+        ArmServiceErrorCode,
+        ArmTicketAuthorKind,
+        ArmTicketRecord,
+        ArmTicketStatus,
+        ArmTicketUpdate;
 
 /// ARM's public ingest: evidence from a client's browser or server, into that
 /// client's own `citadel-arm`.
@@ -53,6 +59,7 @@ final class ArmIngestCapture {
     required this.breadcrumbs,
     this.errorName,
     this.errorData,
+    this.recoverySnapshot,
     this.appVersion,
     this.buildNumber,
     this.releaseChannel,
@@ -78,6 +85,10 @@ final class ArmIngestCapture {
   final List<ArmBreadcrumb> breadcrumbs;
   final String? errorName;
   final Map<String, dynamic>? errorData;
+
+  /// What the app could reconstruct its state from — the Flutter SDK's
+  /// recovery snapshot, sanitised like every other map.
+  final Map<String, dynamic>? recoverySnapshot;
   final String? appVersion;
   final String? buildNumber;
   final String? releaseChannel;
@@ -254,6 +265,7 @@ ArmIngestCapture _parseCapture(Object? raw, String at, DateTime received) {
     breadcrumbs: breadcrumbs,
     errorName: optional('errorName', max: 200),
     errorData: object('errorData'),
+    recoverySnapshot: object('recoverySnapshot'),
     appVersion: optional('appVersion', max: 60),
     buildNumber: optional('buildNumber', max: 60),
     releaseChannel: optional('releaseChannel', max: 60),
@@ -413,6 +425,7 @@ ArmCaptureRequest armCaptureRequestFor(ArmIngestCapture capture) {
     tags: capture.tags,
     errorName: capture.errorName,
     errorData: capture.errorData,
+    recoverySnapshot: capture.recoverySnapshot,
     appVersion: capture.appVersion,
     buildNumber: capture.buildNumber,
     releaseChannel: capture.releaseChannel,
@@ -459,6 +472,13 @@ abstract interface class ArmIngestStore {
     required ArmIngestCapture capture,
     required ArmCaptureRequest request,
     required DateTime receivedAt,
+  });
+
+  /// Writes [ticket] into the Helpdesk's collection unless a ticket with its
+  /// id exists. Returns whether one did — a redelivery, recorded once.
+  Future<bool> openTicket({
+    required ArmProjectTarget target,
+    required ArmTicketRecord ticket,
   });
 }
 
@@ -565,6 +585,51 @@ final class ArmIngestService {
     return outcomes;
   }
 
+  /// Opens a Helpdesk ticket an end user sent from an app's error dialog.
+  ///
+  /// Through the ingest because the app holds nothing else: the key that
+  /// sends its errors is the key that sends its customer's ticket. The ticket
+  /// id is derived from the client and the app's own request id, so a retried
+  /// send opens one ticket; it is written only if no ticket has that id, so a
+  /// sender who guessed an id could not overwrite anybody's conversation.
+  Future<({String ticketId, bool duplicate})> openTicket({
+    required String? clientId,
+    required String? key,
+    required Object? body,
+  }) async {
+    final String client = clientId?.trim() ?? '';
+    final String presented = key?.trim() ?? '';
+    const ArmIngestRejection unauthenticated = ArmIngestRejection(
+      401,
+      'unauthenticated',
+      'The client ID and ARM ingest key do not match a client.',
+    );
+    if (!RegExp(r'^[a-z0-9][a-z0-9-]{1,62}$').hasMatch(client) || presented.isEmpty) {
+      throw unauthenticated;
+    }
+    final ArmTicketRecord draft = parseArmIngestTicket(body, clientId: client, now: _clock());
+    if (!await _keys.verify(client, presented)) throw unauthenticated;
+    if (!_rateLimiter.admit(client, 1)) {
+      throw const ArmIngestRejection(
+        429,
+        'resourceExhausted',
+        'Too many requests for this client this minute. Retry later.',
+      );
+    }
+    final ArmProjectTarget target;
+    try {
+      target = await _router.resolve(client, offering: ArmRoutedOffering.helpdesk);
+    } on ArmServiceException catch (error) {
+      throw _rejectionFor(error);
+    }
+    try {
+      final bool duplicate = await _store.openTicket(target: target, ticket: draft);
+      return (ticketId: draft.ticketId, duplicate: duplicate);
+    } on ArmServiceException catch (error) {
+      throw _rejectionFor(error);
+    }
+  }
+
   /// Accepts captures already converted from an OpenTelemetry export
   /// (`arm_otlp.dart`), in batches of the size [accept] takes. An export with
   /// nothing wrong in it still has its key checked, so a misconfigured
@@ -613,4 +678,78 @@ final class ArmIngestService {
         ),
         _ => ArmIngestRejection(503, 'unavailable', error.message),
       };
+}
+
+/// A ticket as an app sends it:
+///
+///     {"requestId": "...", "title": "...", "description": "...",
+///      "contact": "...", "caseId": "...", "issueId": "...", "sessionId": "..."}
+///
+/// `requestId` is the app's own id for this send, 8–64 of `[A-Za-z0-9_-]`.
+ArmTicketRecord parseArmIngestTicket(
+  Object? raw, {
+  required String clientId,
+  required DateTime now,
+}) {
+  if (raw is! Map) {
+    throw const ArmIngestRejection(400, 'invalidArgument', 'The body must be a JSON object.');
+  }
+  final Map<String, Object?> map = Map<String, Object?>.from(raw);
+  String? text(String key, int max, {bool required = false}) {
+    final Object? value = map[key];
+    if (value == null || (value is String && value.trim().isEmpty)) {
+      if (required) {
+        throw ArmIngestRejection(400, 'invalidArgument', '$key is required.');
+      }
+      return null;
+    }
+    if (value is! String) {
+      throw ArmIngestRejection(400, 'invalidArgument', '$key must be a string.');
+    }
+    final String trimmed = value.trim();
+    if (trimmed.length > max) {
+      throw ArmIngestRejection(400, 'invalidArgument', '$key is longer than $max characters.');
+    }
+    return trimmed;
+  }
+
+  final String requestId = text('requestId', 64, required: true)!;
+  if (!RegExp(r'^[A-Za-z0-9_-]{8,64}$').hasMatch(requestId)) {
+    throw const ArmIngestRejection(
+      400,
+      'invalidArgument',
+      'requestId must be 8–64 letters, digits, "-" or "_".',
+    );
+  }
+  final String title = text('title', 200, required: true)!;
+  final String description = text('description', 10000, required: true)!;
+  final String? contact = text('contact', 200);
+  final String? caseId = text('caseId', 64);
+  final String? issueId = text('issueId', 64);
+  final String? sessionId = text('sessionId', 128);
+  final DateTime at = now.toUtc();
+  final String ticketId =
+      'ticket_${sha1.convert(utf8.encode('$clientId\n$requestId')).toString().substring(0, 24)}';
+  return ArmTicketRecord(
+    ticketId: ticketId,
+    title: title,
+    description: description,
+    status: ArmTicketStatus.open,
+    createdAt: at,
+    updatedAt: at,
+    createdBy: 'citadel_arm_client',
+    reporterContact: contact,
+    caseIds: <String>[?caseId],
+    issueId: issueId,
+    sessionId: sessionId,
+    updates: <ArmTicketUpdate>[
+      ArmTicketUpdate(
+        updateId: '${ticketId}_1',
+        authorKind: ArmTicketAuthorKind.endUser,
+        authorLabel: contact ?? 'Customer',
+        body: description,
+        createdAt: at,
+      ),
+    ],
+  );
 }

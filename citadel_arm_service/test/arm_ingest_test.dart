@@ -212,6 +212,78 @@ void main() {
       expect(store.records, isEmpty);
     });
 
+    test('a recovery snapshot travels with the capture, sanitised', () async {
+      await service.accept(clientId: 'client-a', key: 'key-a', body: <Object?>[
+        capture(extra: <String, Object?>{
+          'source': 'flutter',
+          'recoverySnapshot': <String, Object?>{'route': '/checkout', 'cart': <Object?>[1, 2]},
+        }),
+      ]);
+      expect(store.records.values.single.recoverySnapshot, <String, Object?>{
+        'route': '/checkout',
+        'cart': <Object?>[1, 2],
+      });
+    });
+
+    group('tickets', () {
+      Map<String, Object?> ticket({String requestId = 'req-00000001', Object? title = 'Checkout broke'}) =>
+          <String, Object?>{
+            'requestId': requestId,
+            'title': title,
+            'description': 'I pressed pay and **nothing** happened.',
+            'contact': 'amy@example.sg',
+            'caseId': 'ARM-20260923-ABCDEF12',
+            'issueId': 'issue_abc',
+            'sessionId': 'session-1',
+          };
+
+      test('an end user\'s ticket is opened in the Helpdesk\'s database, once', () async {
+        final first = await service.openTicket(clientId: 'client-a', key: 'key-a', body: ticket());
+        final again = await service.openTicket(clientId: 'client-a', key: 'key-a', body: ticket());
+        expect(first.duplicate, isFalse);
+        expect(again.duplicate, isTrue);
+        expect(again.ticketId, first.ticketId);
+        final stored = store.tickets.values.single;
+        expect(stored.target.databaseId, 'citadel-manifold');
+        expect(stored.ticket.createdBy, 'citadel_arm_client');
+        expect(stored.ticket.caseIds, <String>['ARM-20260923-ABCDEF12']);
+        expect(stored.ticket.updates.single.authorKind, ArmTicketAuthorKind.endUser);
+        expect(stored.ticket.updates.single.authorLabel, 'amy@example.sg');
+      });
+
+      test('another client\'s same request id is another ticket', () async {
+        final a = parseArmIngestTicket(ticket(), clientId: 'client-a', now: _now);
+        final b = parseArmIngestTicket(ticket(), clientId: 'client-b', now: _now);
+        expect(a.ticketId, isNot(b.ticketId));
+      });
+
+      test('what is wrong with a ticket is said', () async {
+        for (final Map<String, Object?> bad in <Map<String, Object?>>[
+          ticket(title: null),
+          ticket(requestId: 'short'),
+          ticket(title: 'x' * 201),
+        ]) {
+          await expectLater(
+            service.openTicket(clientId: 'client-a', key: 'key-a', body: bad),
+            throwsA(isA<ArmIngestRejection>().having((r) => r.status, 'status', 400)),
+          );
+        }
+        await expectLater(
+          service.openTicket(clientId: 'client-a', key: 'nope', body: ticket()),
+          throwsA(isA<ArmIngestRejection>().having((r) => r.status, 'status', 401)),
+        );
+        expect(store.tickets, isEmpty);
+      });
+
+      test('Manifold off is 409', () async {
+        service = build(router: const _Router(off: true));
+        await expectLater(
+          service.openTicket(clientId: 'client-a', key: 'key-a', body: ticket()),
+          throwsA(isA<ArmIngestRejection>().having((r) => r.status, 'status', 409)),
+        );
+      });
+    });
+
     test('a switched-off ARM is 409, as every product answers', () async {
       service = build(router: const _Router(off: true));
       await expectLater(
@@ -356,6 +428,25 @@ void main() {
       expect(await other.readAsString(), contains('No SDK file is named other.zip'));
     });
 
+    test('a ticket is opened over HTTP: 201, then 200 for a redelivery', () async {
+      Request post() => Request(
+        'POST',
+        Uri.parse('http://x/v1/tickets'),
+        headers: <String, String>{'x-citadel-client': 'client-a', 'x-arm-key': 'key-a'},
+        body: jsonEncode(<String, Object?>{
+          'requestId': 'req-12345678',
+          'title': 'Cannot pay',
+          'description': 'The button spins.',
+        }),
+      );
+      final Response first = await handler(post());
+      expect(first.statusCode, 201);
+      final Map<String, Object?> body = jsonDecode(await first.readAsString()) as Map<String, Object?>;
+      expect(body['ticketId'], startsWith('ticket_'));
+      expect((await handler(post())).statusCode, 200);
+      expect(store.tickets, hasLength(1));
+    });
+
     test('a failure is opaque and carries a request id', () async {
       final Response response = await handler(
         Request('POST', Uri.parse('http://x/v1/captures'), body: 'not json'),
@@ -399,6 +490,19 @@ final class _Router implements ArmProjectRouter {
 
 final class _MemoryStore implements ArmIngestStore {
   final Map<String, ArmCaptureRequest> records = <String, ArmCaptureRequest>{};
+  final Map<String, ({ArmProjectTarget target, ArmTicketRecord ticket})> tickets =
+      <String, ({ArmProjectTarget target, ArmTicketRecord ticket})>{};
+
+  @override
+  Future<bool> openTicket({
+    required ArmProjectTarget target,
+    required ArmTicketRecord ticket,
+  }) async {
+    if (tickets.containsKey(ticket.ticketId)) return true;
+    tickets[ticket.ticketId] = (target: target, ticket: ticket);
+    return false;
+  }
+
   @override
   Future<ArmIngestOutcome> record({
     required ArmProjectTarget target,

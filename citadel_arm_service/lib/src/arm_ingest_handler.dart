@@ -142,6 +142,42 @@ Future<Response> _route(
   if (request.method == 'POST' &&
       path.length == 2 &&
       path[0] == 'v1' &&
+      path[1] == 'tickets') {
+    try {
+      final List<int> bytes = <int>[];
+      await for (final List<int> chunk in request.read()) {
+        bytes.addAll(chunk);
+        if (bytes.length > 64 * 1024) {
+          throw const ArmIngestRejection(413, 'payloadTooLarge', 'The ticket is too large.');
+        }
+      }
+      final Object? body;
+      try {
+        body = jsonDecode(utf8.decode(bytes));
+      } on FormatException {
+        throw const ArmIngestRejection(400, 'invalidArgument', 'The body is not JSON.');
+      }
+      final ({String ticketId, bool duplicate}) opened = await service.openTicket(
+        clientId: request.headers['x-citadel-client'] ?? request.url.queryParameters['client'],
+        key: request.headers['x-arm-key'] ?? request.url.queryParameters['key'],
+        body: body,
+      );
+      return _json(opened.duplicate ? 200 : 201, <String, Object?>{
+        'requestId': requestId,
+        'ticketId': opened.ticketId,
+        'duplicate': opened.duplicate,
+      });
+    } on ArmIngestRejection catch (rejection) {
+      return _error(rejection.status, rejection.code, rejection.message, requestId);
+    } on Object catch (error, stack) {
+      stderr.writeln('ARM ingest ticket $requestId failed: $error\n$stack');
+      return _error(500, 'internal', 'The ARM ingest failed.', requestId);
+    }
+  }
+
+  if (request.method == 'POST' &&
+      path.length == 2 &&
+      path[0] == 'v1' &&
       (path[1] == 'traces' || path[1] == 'logs')) {
     return _otlp(
       request,

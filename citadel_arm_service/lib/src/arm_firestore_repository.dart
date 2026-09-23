@@ -25,6 +25,34 @@ const String armCasesCollectionId = 'armCases';
 /// preserved for its own sake — what AGENTS.md rule 11 exists to stop.
 const String manifoldTicketsCollectionId = 'manifoldTickets';
 
+/// A ticket as it is stored: one document per ticket in
+/// [manifoldTicketsCollectionId]. Shared by the evidence service and the ARM
+/// ingest (which opens a ticket an end user sends from an app), so the two
+/// writers cannot drift.
+Map<String, firestore_api.Value> encodeArmTicketDocumentFields(
+  ArmTicketRecord ticket,
+) {
+  // Round-tripped through the codec before it is written, so a shape the
+  // reader would refuse can never reach storage.
+  final String payload = jsonEncode(
+    encodeArmTicketRecord(
+      decodeArmTicketRecord(encodeArmTicketRecord(ticket), r'$'),
+    ),
+  );
+  return <String, firestore_api.Value>{
+    'ticketId': firestore_api.Value(stringValue: ticket.ticketId),
+    // The whole ticket, as one payload. Its history is the document, and a
+    // partial write of a history is a history with a hole in it.
+    'ticket': firestore_api.Value(stringValue: payload),
+    // Duplicated out of the payload so a listing can be ordered and a status
+    // filtered without decoding every ticket in the project.
+    'status': firestore_api.Value(stringValue: ticket.status.name),
+    'updatedAt': firestore_api.Value(
+      timestampValue: ticket.updatedAt.toUtc().toIso8601String(),
+    ),
+  };
+}
+
 /// Where a project's alerting policies and channels live.
 ///
 /// In the registry project rather than the client's, because it decides who
@@ -394,31 +422,13 @@ final class FirestoreArmEvidenceRepository implements ArmEvidenceRepository {
       projectId,
       offering: ArmRoutedOffering.helpdesk,
     );
-    // Round-tripped through the codec before it is written, so a shape the
-    // reader would refuse can never reach storage.
-    final String payload = jsonEncode(
-      encodeArmTicketRecord(
-        decodeArmTicketRecord(encodeArmTicketRecord(ticket), r'$'),
-      ),
-    );
     final name =
         '${target.documentsRoot}/$manifoldTicketsCollectionId/${ticket.ticketId}';
     try {
       await _firestoreApi.projects.databases.documents.patch(
         firestore_api.Document(
           name: name,
-          fields: <String, firestore_api.Value>{
-            'ticketId': firestore_api.Value(stringValue: ticket.ticketId),
-            // The whole ticket, as one payload. Its history is the document,
-            // and a partial write of a history is a history with a hole in it.
-            'ticket': firestore_api.Value(stringValue: payload),
-            // Duplicated out of the payload so a listing can be ordered and a
-            // status filtered without decoding every ticket in the project.
-            'status': firestore_api.Value(stringValue: ticket.status.name),
-            'updatedAt': firestore_api.Value(
-              timestampValue: ticket.updatedAt.toUtc().toIso8601String(),
-            ),
-          },
+          fields: encodeArmTicketDocumentFields(ticket),
         ),
         name,
         updateMask_fieldPaths: const <String>[

@@ -186,6 +186,8 @@ final class _Router implements ArmProjectRouter {
 final class _Store implements ArmIngestStore {
   final List<ArmIngestCapture> captures = <ArmIngestCapture>[];
   @override
+  Future<bool> openTicket({required ArmProjectTarget target, required ArmTicketRecord ticket}) async => false;
+  @override
   Future<ArmIngestOutcome> record({
     required ArmProjectTarget target,
     required String caseId,

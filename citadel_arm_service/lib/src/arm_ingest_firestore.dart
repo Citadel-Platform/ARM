@@ -5,7 +5,9 @@ import 'package:googleapis/firestore/v1.dart' as firestore_api;
 import 'arm_ingest.dart';
 import 'arm_private_service.dart';
 import 'arm_project_router.dart';
-import 'arm_service_models.dart' show ArmServiceErrorCode;
+import 'arm_firestore_repository.dart'
+    show encodeArmTicketDocumentFields, manifoldTicketsCollectionId;
+import 'arm_service_models.dart' show ArmServiceErrorCode, ArmTicketRecord;
 
 /// Where a client's ARM ingest key is kept: `arm_projects/{projectId}` in the
 /// registry, field `ingestKey`.
@@ -243,6 +245,37 @@ final class FirestoreArmIngestStore implements ArmIngestStore {
         if (error.status == 409 && attempt < maxAttempts) continue;
         throw _failure(error);
       }
+    }
+  }
+
+  @override
+  Future<bool> openTicket({
+    required ArmProjectTarget target,
+    required ArmTicketRecord ticket,
+  }) async {
+    final String database =
+        'projects/${target.customerProjectId}/databases/${target.databaseId}';
+    try {
+      await _firestoreApi.projects.databases.documents.commit(
+        firestore_api.CommitRequest(
+          writes: <firestore_api.Write>[
+            firestore_api.Write(
+              update: firestore_api.Document(
+                name:
+                    '${target.documentsRoot}/$manifoldTicketsCollectionId/${ticket.ticketId}',
+                fields: encodeArmTicketDocumentFields(ticket),
+              ),
+              currentDocument: firestore_api.Precondition(exists: false),
+            ),
+          ],
+        ),
+        database,
+      );
+      return false;
+    } on firestore_api.DetailedApiRequestError catch (error) {
+      // ALREADY_EXISTS: this send was delivered before.
+      if (error.status == 409) return true;
+      throw _failure(error);
     }
   }
 
