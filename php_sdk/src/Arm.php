@@ -314,6 +314,18 @@ final class Arm
             if ($this->queue === []) {
                 return;
             }
+            // The status a capture saw was the one set when it happened —
+            // before PHP turned an uncaught exception into a 500. What the
+            // visitor got is known only now.
+            if (PHP_SAPI !== 'cli') {
+                $final = http_response_code();
+                foreach ($this->queue as &$queued) {
+                    if (is_int($final) && isset($queued['context']->request) && is_array($queued['context']->request)) {
+                        $queued['context']->request['status'] = $final;
+                    }
+                }
+                unset($queued);
+            }
             // The visitor has their page; the report goes after it.
             if ($this->options['finish_request'] && function_exists('fastcgi_finish_request')) {
                 fastcgi_finish_request();
@@ -453,7 +465,11 @@ final class Arm
     /** Paths under the application root, made relative: no server layout leaves, and a new deploy directory is not a new issue. */
     private function relative(string $text): string
     {
-        $text = str_replace('\\', '/', $text);
+        // Only on Windows are backslashes path separators; elsewhere they are
+        // namespace separators (`App\\Booking::confirm`) and must stay.
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $text = str_replace('\\', '/', $text);
+        }
         foreach ($this->roots as $root) {
             $text = str_replace($root, '', $text);
         }

@@ -82,14 +82,15 @@ $ingest = "http://127.0.0.1:$ingestPort";
 // --------------------------------------------------------------------- CLI
 
 file_put_contents($record, '');
-$r = script("function load() { throw new \\LogicException('Config 12 is missing'); }\nload();\n", $ingest);
+$r = script("eval('namespace Deep; class Loader { function load() { throw new \\\\LogicException(\\'Config 12 is missing\\'); } }');\n(new \\Deep\\Loader())->load();\n", $ingest);
 $c = received($record);
 check('cli uncaught: exit status stays 255', $r['code'] === 255, "got {$r['code']}");
 check('cli uncaught: PHP\'s own message still printed', str_contains($r['err'], 'PHP Fatal error:  Uncaught LogicException: Config 12 is missing'), $r['err']);
 check('cli uncaught: one capture arrived', count($c) === 1, (string) count($c));
 check('cli uncaught: shaped as a php capture', ($c[0]['source'] ?? '') === 'php' && ($c[0]['operation'] ?? '') === 'uncaught_exception' && ($c[0]['severity'] ?? '') === 'critical' && ($c[0]['errorType'] ?? '') === 'LogicException' && ($c[0]['feature'] ?? '') === 'cron');
 check('cli uncaught: client id and key in headers', ($c[0]['_client'] ?? '') === 'client-a' && ($c[0]['_key'] ?? '') === 'k');
-check('cli uncaught: stack starts at the throw site, relative to the root', str_starts_with((string) ($c[0]['stackTrace'] ?? ''), 'arm-script') && !str_contains((string) $c[0]['stackTrace'], sys_get_temp_dir() . '/'), (string) ($c[0]['stackTrace'] ?? ''));
+check('cli uncaught: namespace separators survive', str_contains((string) ($c[0]['stackTrace'] ?? ''), 'Deep\\Loader->load()'), (string) ($c[0]['stackTrace'] ?? ''));
+check('cli uncaught: stack starts at the throw site, relative to the root', str_contains((string) ($c[0]['stackTrace'] ?? ''), 'arm-script') && !str_contains((string) $c[0]['stackTrace'], sys_get_temp_dir() . '/'), (string) ($c[0]['stackTrace'] ?? ''));
 
 file_put_contents($record, '');
 $r = script("ini_set('memory_limit', '16M');\n\$a = [];\nwhile (true) { \$a[] = str_repeat('x', 1024 * 1024); }\n", $ingest);
@@ -148,6 +149,7 @@ check('web: exactly an uncaught exception, a 5xx and a slow request', array_keys
 check('web: the thrown request is not also reported as a bare 5xx', count($c) === 3, (string) count($c));
 $request = $byOperation['uncaught_exception']['context']['request'] ?? [];
 check('web: request context is method, route and path — no query', ($request['method'] ?? '') === 'GET' && ($request['path'] ?? '') === '/boom' && ($request['route'] ?? '') === '/boom' && !str_contains(json_encode($c), 'secret'), json_encode($request));
+check('web: the status is what the visitor got, not what it was mid-request', ($request['status'] ?? null) === 500, json_encode($request));
 check('web: release, environment and service carried', ($byOperation['uncaught_exception']['appVersion'] ?? '') === '2026.09.23' && ($byOperation['uncaught_exception']['environment'] ?? '') === 'production' && ($byOperation['uncaught_exception']['feature'] ?? '') === 'bookings');
 check('web: the 5xx names the answer', ($byOperation['http_5xx']['message'] ?? '') === 'GET /fail answered 502', (string) ($byOperation['http_5xx']['message'] ?? ''));
 check('web: stack relative to the application root', str_starts_with((string) ($byOperation['uncaught_exception']['stackTrace'] ?? ''), 'tests/fixtures/app.php('), (string) ($byOperation['uncaught_exception']['stackTrace'] ?? ''));
