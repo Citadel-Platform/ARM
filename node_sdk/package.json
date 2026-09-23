@@ -1,0 +1,36 @@
+{
+  "name": "@citadel/arm-node",
+  "version": "0.1.0",
+  "description": "ARM for Node servers: uncaught exceptions and rejections, 5xx and slow requests, with Express, Fastify and Next.js hooks, sent to Citadel's shared ARM ingest.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "npm --prefix ../contract/js run build",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "pack:release": "node tool/pack.mjs"
+  },
+  "dependencies": {
+    "@citadel/arm-contract": "file:../contract/js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.4.4"
+  }
+}
